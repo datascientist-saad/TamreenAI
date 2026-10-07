@@ -17,7 +17,7 @@ export default async function LiveReportPage({ params }: { params: Promise<{ id:
     cameraUsed: session.camera_used,
     analysisSource: session.analysis_source,
   });
-  const metrics = form?.metrics && typeof form.metrics === "object" ? Object.entries(form.metrics as Record<string, number>) : [];
+  const metrics = metricRows(form?.metrics);
 
   return (
     <PageFrame eyebrow="Workout complete" title={session.exercise_slug.replaceAll("_", " ")} lede={summary.headline}>
@@ -43,7 +43,23 @@ export default async function LiveReportPage({ params }: { params: Promise<{ id:
           <p className="mt-2 font-bold">These scores are a fixed example. They were not calculated from this camera session.</p>
           <p className="metric mt-2 text-5xl">{form.overall_score}</p>
           <ul className="mt-3 grid gap-2 text-sm">
-            {metrics.map(([key, value]) => <li key={key} className="flex justify-between"><span className="capitalize">{key.replaceAll("_", " ")}</span><span className="metric">{value}</span></li>)}
+            {metrics.map((metric) => <li key={metric.key} className="flex justify-between"><span className="capitalize">{metric.label}</span><span className="metric">{metric.score}</span></li>)}
+          </ul>
+          <p className="mt-3 text-sm"><span className="font-bold">Best. </span>{form.best_note}</p>
+          <p className="text-sm"><span className="font-bold">Improve. </span>{form.improve_note}</p>
+        </article>
+      ) : form?.source === "model" ? (
+        <article className="app-card p-4">
+          <p className="eyebrow">Camera form</p>
+          <p className="mt-2 text-sm">2D camera estimate, not a lab measurement.</p>
+          <p className="metric mt-2 text-5xl">{form.overall_score}</p>
+          <ul className="mt-3 grid gap-3 text-sm">
+            {metrics.map((metric) => (
+              <li key={metric.key}>
+                <div className="flex justify-between font-bold"><span>{metric.label}</span><span className="metric">{metric.score}</span></div>
+                {metric.detail ? <p className="text-muted">{metric.detail}</p> : null}
+              </li>
+            ))}
           </ul>
           <p className="mt-3 text-sm"><span className="font-bold">Best. </span>{form.best_note}</p>
           <p className="text-sm"><span className="font-bold">Improve. </span>{form.improve_note}</p>
@@ -51,11 +67,27 @@ export default async function LiveReportPage({ params }: { params: Promise<{ id:
       ) : (
         <article className="app-card p-4">
           <h2 className="font-bold">Form analysis</h2>
-          <p className="mt-2 text-sm text-muted">No form score was saved. Depth, knee tracking, torso, and tempo are unavailable.</p>
+          <p className="mt-2 text-sm text-muted">
+            {session.analysis_source === "model"
+              ? "The pose model ran, but the body was not visible enough to score form. No score was invented."
+              : "No form score was saved. Depth, knee tracking, torso, and tempo stay blank until the camera can see the movement."}
+          </p>
         </article>
       )}
     </PageFrame>
   );
+}
+
+function metricRows(metrics: unknown): Array<{ key: string; label: string; score: string; detail?: string }> {
+  if (!metrics || typeof metrics !== "object") return [];
+  return Object.entries(metrics as Record<string, unknown>).map(([key, value]) => {
+    if (typeof value === "number") return { key, label: key.replaceAll("_", " "), score: String(value) };
+    if (value && typeof value === "object" && "score" in value) {
+      const row = value as { score?: number; label?: string; detail?: string };
+      return { key, label: row.label || key.replaceAll("_", " "), score: row.score == null ? "—" : String(row.score), detail: row.detail };
+    }
+    return { key, label: key.replaceAll("_", " "), score: "—" };
+  });
 }
 
 function Item({ label, value }: { label: string; value: string }) {

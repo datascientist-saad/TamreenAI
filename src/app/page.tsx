@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { Mark, Wordmark } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const sections = [
   ["Problem", "Four plans do not know about each other. A heavy squat day quietly ruins tomorrow's intervals, and a long run quietly ruins the squat. Most apps never say that out loud."],
   ["How Tamreen works", "Goal, plan, train, measure, analyze, recover, adapt. Every screen answers what to do, why, how you performed, or what should change."],
   ["Hybrid training", "Strength, running, cycling, and swimming share one fatigue budget. Tamreen places sessions so they support the event instead of colliding."],
-  ["Live training", "The camera is real. Pose scoring waits for a real model. Manual reps are saved as manual reps, and placeholders are labeled as placeholders."],
+  ["Live training", "The camera runs an on-device pose model. Scores appear only when the body stays visible. They are 2D camera estimates, not a lab measurement. Placeholders stay labeled as placeholders."],
   ["AI coach", "Ask why a session changed. Tamreen shows the factors and waits for you to accept a major change."],
   ["Performance", "Scores appear only when the inputs exist, and each one says how it was calculated."],
   ["Events", "A race result can become a profile, a plan, and the next block of training."],
@@ -17,9 +18,10 @@ export default function LandingPage() {
   return (
     <div className="bg-paper text-ink">
       <header className="sticky top-0 z-20 border-b border-white/10 bg-maroon-deep/95 text-white backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-4">
           <Wordmark />
-          <nav className="flex gap-2">
+          <nav className="flex items-center gap-2">
+            <ThemeToggle persist={false} onDark />
             <Link className="btn btn-ghost border-white/20 text-white" href="/login">Sign in</Link>
             <Link className="btn btn-primary" href="/signup">Start training</Link>
           </nav>

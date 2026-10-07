@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, CalendarDays, House, Menu, Video } from "lucide-react";
-import { Wordmark } from "./brand";
+import { Mark, Wordmark } from "./brand";
+import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -46,9 +47,10 @@ export function AppShell({
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-      <aside className="sticky top-0 hidden h-screen flex-col gap-6 border-r border-line bg-card p-5 md:flex">
+      <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-5 md:flex">
         <Link href="/home" aria-label="Tamreen home"><Wordmark /></Link>
-        <nav className="grid gap-1" aria-label="Primary">
+        <Link href="/plan" className="btn btn-primary">Open plan</Link>
+        <nav className="grid min-h-0 gap-1 overflow-y-auto" aria-label="Primary">
           {[...side, ...extra].map(([href, label]) => (
             <Link
               key={href}
@@ -62,8 +64,16 @@ export function AppShell({
             </Link>
           ))}
         </nav>
+        <div className="mt-auto">
+          <ThemeToggle />
+        </div>
       </aside>
       <div className="safe-bottom md:pb-0">
+        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-line bg-card/95 px-4 py-3 backdrop-blur md:hidden">
+          <Link href="/home" aria-label="Tamreen home"><Mark /></Link>
+          <Link href="/plan" className={cn("btn min-h-10 px-4", pathname === "/plan" || pathname.startsWith("/plan/") ? "btn-primary" : "btn-ghost")}>Plan</Link>
+          <ThemeToggle />
+        </header>
         {children}
       </div>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label="Mobile">
