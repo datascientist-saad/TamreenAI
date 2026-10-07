@@ -11,6 +11,11 @@ export const metadata: Metadata = {
   applicationName: "Tamreen AI",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Tamreen AI", statusBarStyle: "black-translucent" },
+  openGraph: {
+    title: "Tamreen AI",
+    description: "One athlete. Multiple sports. One intelligent training system.",
+    images: [{ url: "/images/tamreen-logo.png", width: 512, height: 512, alt: "Tamreen AI" }],
+  },
 };
 
 export const viewport: Viewport = {
