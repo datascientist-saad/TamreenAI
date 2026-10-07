@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --paper: #f7f4f2;
+  --card: #ffffff;
+  --ink: #1f1115;
+  --muted: #6b6066;
+  --line: #e8e2e4;
+  --maroon: #8a1538;
+  --maroon-deep: #3d0e1f;
+  --gold: #c9a876;
+  --live: #e8483c;
+  --shadow: 0 18px 50px rgba(61, 14, 31, 0.08);
+}
+
+.dark {
+  --paper: #10080c;
+  --card: #1a1014;
+  --ink: #f6f1f2;
+  --muted: #b3a4a8;
+  --line: #3a242c;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-maroon: var(--maroon);
+  --color-maroon-deep: var(--maroon-deep);
+  --color-gold: var(--gold);
+  --color-live: var(--live);
+  --font-sans: var(--font-outfit);
+  --font-mono: var(--font-jetbrains);
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-outfit), "Segoe UI", sans-serif;
+}
+
+button, a, input, select, textarea { font: inherit; }
+
+::selection { background: rgba(138, 21, 56, 0.18); }
+
+.metric {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.safe-bottom { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+
+.app-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow);
+}
+
+.eyebrow {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--maroon);
+}
+
+.dark .eyebrow { color: var(--gold); }
+
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 0.9rem;
+  padding: 0.85rem 0.95rem;
+  min-height: 48px;
+}
+
+textarea { min-height: 120px; resize: vertical; }
+
+label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.75rem 1.1rem;
+  border-radius: 0.95rem;
+  border: 1px solid transparent;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn-primary { background: var(--maroon); color: white; }
+.btn-primary:hover { background: #73122f; }
+.btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn-gold { background: var(--gold); color: #3d0e1f; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sport-running { background: rgba(138, 21, 56, 0.12); color: var(--maroon); }
+.sport-cycling { background: rgba(201, 168, 118, 0.28); color: #6d5428; }
+.sport-swimming { background: rgba(47, 93, 120, 0.12); color: #24556f; }
+.sport-strength, .sport-bodybuilding { background: #1f1115; color: white; }
+.sport-brick { background: var(--maroon); color: white; }
+.sport-mobility, .sport-recovery { background: var(--line); color: var(--ink); }
+
+.dark .sport-cycling { color: #f3e6cf; }
+.dark .sport-swimming { color: #d5e7f2; }
+.dark .sport-strength, .dark .sport-bodybuilding { background: #2a171d; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--line), transparent, var(--line));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  border-radius: 0.8rem;
+}
+
+@keyframes shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
