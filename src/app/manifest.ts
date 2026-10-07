@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#10080c",
     theme_color: "#8A1538",
     icons: [
-      { src: "/icon", sizes: "32x32", type: "image/png" },
+      { src: "/images/tamreen-logo.png", sizes: "512x512", type: "image/png" },
     ],
   };
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Wordmark } from "@/components/brand";
+import { Mark, Wordmark } from "@/components/brand";
 
 const sections = [
   ["Problem", "Four plans do not know about each other. A heavy squat day quietly ruins tomorrow's intervals, and a long run quietly ruins the squat. Most apps never say that out loud."],
@@ -25,8 +25,11 @@ export default function LandingPage() {
           </nav>
         </div>
       </header>
-      <section className="bg-gradient-to-b from-[#3d0e1f] to-[#4a1228] px-6 pb-24 pt-20 text-center text-white">
-        <p className="eyebrow text-gold">Plan · Train · Adapt</p>
+      <section className="bg-gradient-to-b from-[#3d0e1f] to-[#4a1228] px-6 pb-24 pt-16 text-center text-white">
+        <div className="mx-auto w-fit overflow-hidden rounded-3xl shadow-lg">
+          <Mark size={112} />
+        </div>
+        <p className="eyebrow mt-6 text-gold">Plan · Train · Adapt</p>
         <h1 className="mx-auto mt-4 max-w-4xl text-5xl font-extrabold tracking-tight md:text-7xl">TAMREEN AI</h1>
         <p className="mx-auto mt-4 max-w-2xl text-2xl font-semibold">One athlete. Multiple sports. One intelligent training system.</p>
         <p className="mx-auto mt-4 max-w-2xl text-white/75">
