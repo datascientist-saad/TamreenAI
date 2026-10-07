@@ -73,6 +73,12 @@ export function daysUntil(iso: string, today: string): number {
   return Math.round((end - start) / 86_400_000);
 }
 
+export function shiftIsoDate(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function sportLabel(sport: string): string {
   const labels: Record<string, string> = {
     strength: "Strength",

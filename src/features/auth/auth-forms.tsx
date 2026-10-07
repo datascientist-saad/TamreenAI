@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/browser";
 import { Wordmark } from "@/components/brand";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function LoginForm({ next }: { next?: string }) {
   return <AuthCard mode="login" nextPath={next} />;
@@ -121,7 +122,10 @@ function Shell({ title, subtitle, children }: { title: string; subtitle: string;
   return (
     <main className="mx-auto grid min-h-screen max-w-md place-items-center px-4 py-10">
       <section className="app-card w-full p-6">
-        <Link href="/"><Wordmark /></Link>
+        <div className="flex items-start justify-between gap-3">
+          <Link href="/"><Wordmark /></Link>
+          <ThemeToggle persist={false} />
+        </div>
         <h1 className="mt-6 text-3xl font-extrabold">{title}</h1>
         <p className="mt-2 text-sm text-muted">{subtitle}</p>
         <div className="mt-6">{children}</div>

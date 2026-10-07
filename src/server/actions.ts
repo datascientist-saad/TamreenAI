@@ -27,6 +27,8 @@ import {
   type Sport,
 } from "@/services/training/engine";
 import { todayInTimeZone } from "@/lib/utils";
+import { MIN_POSE_FRAMES } from "@/services/live/geometry";
+import { LIVE_EXERCISES, POSE_MODEL_NAME, type ModelFormPayload } from "@/services/live/pose";
 import { requireUser } from "./guard";
 
 async function limit(action: string, maxCalls: number, windowSeconds: number) {
@@ -846,23 +848,43 @@ export async function saveLiveSession(input: {
   cameraUsed: boolean;
   savePlaceholder: boolean;
   notes: string;
+  model?: ModelFormPayload | null;
 }) {
   const { supabase, user } = await limit("live_session", 30, 3600);
-  const analysisSource = input.savePlaceholder ? "placeholder_demo" : input.manualReps > 0 ? "manual" : "unavailable";
+  if (!LIVE_EXERCISES.some((exercise) => exercise.slug === input.exerciseSlug)) {
+    throw new Error("That exercise is not in the live library.");
+  }
+  const model = acceptedPose(input.model);
+  const scored = Boolean(model && model.overall != null && model.metrics.length);
+  const placeholder = !scored && input.savePlaceholder && input.exerciseSlug === "squat";
+  const reps = clampInt(input.manualReps, 0, 2000);
+  const analysisSource = scored || (model && !placeholder) ? "model" : placeholder ? "placeholder_demo" : reps > 0 ? "manual" : "unavailable";
   const { data, error } = await supabase.from("live_training_sessions").insert({
     user_id: user.id,
     exercise_slug: input.exerciseSlug,
-    started_at: new Date(Date.now() - input.durationSeconds * 1000).toISOString(),
+    started_at: new Date(Date.now() - clampInt(input.durationSeconds, 0, 86_400) * 1000).toISOString(),
     ended_at: new Date().toISOString(),
-    duration_seconds: input.durationSeconds,
+    duration_seconds: clampInt(input.durationSeconds, 0, 86_400),
     camera_used: input.cameraUsed,
-    manual_reps: input.manualReps,
-    manual_sets: input.manualSets,
+    manual_reps: reps,
+    manual_sets: clampInt(input.manualSets, 1, 100),
     analysis_source: analysisSource,
-    notes: input.notes,
+    notes: input.notes.slice(0, 2000),
   }).select("id").single();
   if (error || !data) throw new Error(error?.message ?? "Live session was not saved.");
-  if (input.savePlaceholder && input.exerciseSlug === "squat") {
+  if (scored && model) {
+    const metrics = Object.fromEntries(model.metrics.map((metric) => [metric.key, { score: metric.score, label: metric.label, detail: metric.detail }]));
+    await supabase.from("form_analysis").insert({
+      session_id: data.id,
+      exercise_slug: input.exerciseSlug,
+      source: "model",
+      is_placeholder: false,
+      overall_score: model.overall,
+      metrics,
+      best_note: model.best,
+      improve_note: model.improve,
+    });
+  } else if (placeholder) {
     await supabase.from("form_analysis").insert({
       session_id: data.id,
       exercise_slug: input.exerciseSlug,
@@ -874,8 +896,60 @@ export async function saveLiveSession(input: {
       improve_note: "Placeholder example, not a measurement of this session.",
     });
   }
+  if (model) {
+    await supabase.from("pose_analysis").insert({
+      session_id: data.id,
+      source: "model",
+      model_name: POSE_MODEL_NAME,
+      frame_count: model.frameCount,
+      payload: {
+        reps: model.reps,
+        visible_frames: model.frameCount,
+        metrics: model.metrics,
+        note: "2D camera estimate from pose_landmarker_lite. Not a lab or medical measurement.",
+      },
+    });
+  }
   revalidatePath("/live");
   return { id: data.id };
+}
+
+function acceptedPose(input: ModelFormPayload | null | undefined) {
+  if (!input || input.modelName !== POSE_MODEL_NAME) return null;
+  if (!Number.isInteger(input.frameCount) || input.frameCount < MIN_POSE_FRAMES || input.frameCount > 20_000) return null;
+  if (!Number.isInteger(input.reps) || input.reps < 0 || input.reps > 500) return null;
+  if (!Array.isArray(input.metrics) || input.metrics.length > 8) return null;
+  const metrics: ModelFormPayload["metrics"] = [];
+  for (const metric of input.metrics) {
+    if (!metric || typeof metric.key !== "string" || !/^[a-z0-9_]{1,40}$/.test(metric.key)) return null;
+    if (typeof metric.label !== "string" || metric.label.length > 80) return null;
+    if (typeof metric.detail !== "string" || metric.detail.length > 240) return null;
+    if (typeof metric.score !== "number" || !Number.isFinite(metric.score) || metric.score < 0 || metric.score > 100) return null;
+    metrics.push({ key: metric.key, label: metric.label, detail: metric.detail, score: Math.round(metric.score) });
+  }
+  const overall = metrics.length ? Math.round(metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length) : null;
+  return {
+    frameCount: input.frameCount,
+    reps: input.reps,
+    metrics,
+    best: typeof input.best === "string" ? input.best.slice(0, 240) : "",
+    improve: typeof input.improve === "string" ? input.improve.slice(0, 240) : "",
+    overall,
+  };
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+export async function updateTheme(theme: "system" | "light" | "dark") {
+  if (theme !== "system" && theme !== "light" && theme !== "dark") return { ok: false };
+  const { supabase, user } = await limit("settings", 60, 3600);
+  const { error } = await supabase.from("user_settings").update({ theme }).eq("user_id", user.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings");
+  return { ok: true };
 }
 
 export async function updateSettings(input: {

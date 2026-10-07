@@ -1,9 +1,22 @@
 /**
- * Live training is split so a future pose model can replace the estimator
- * without rewriting the session UI. This build does not ship a pose model.
- * Manual reps are real user input. Form scores stay unavailable unless a
- * model writes them, or the athlete explicitly saves a labeled placeholder.
+ * Live training keeps the estimator behind this interface.
+ * The browser session loads MediaPipe in mediapipe-estimator.ts.
+ * Manual reps stay available when the model cannot see the body.
+ * Form scores are omitted unless the model measured enough visible frames,
+ * or the athlete explicitly saves the labeled squat placeholder.
  */
+
+export const POSE_MODEL_NAME = "pose_landmarker_lite";
+
+export interface ModelFormPayload {
+  frameCount: number;
+  modelName: string;
+  reps: number;
+  overall: number | null;
+  metrics: Array<{ key: string; label: string; score: number; detail: string }>;
+  best: string;
+  improve: string;
+}
 
 export interface PoseLandmark {
   name: string;
@@ -103,9 +116,9 @@ export const sessionAnalyzer: SessionAnalyzer = {
     const unavailable =
       input.analysisSource === "model"
         ? []
-        : ["Form score, joint angles, and rep detection were not measured. No pose model is connected."];
+        : ["Form was not scored from the camera on this session."];
     return {
-      headline: input.analysisSource === "model" ? "Session analyzed" : "Session saved without pose analysis",
+      headline: input.analysisSource === "model" ? "Pose session saved" : "Session saved without a pose score",
       measured,
       unavailable,
     };
@@ -146,6 +159,7 @@ export const PLACEHOLDER_FORM: FormBreakdown = {
   improve: "Right knee showed increased medial movement during final repetitions.",
 };
 
+/** Server-safe fallback. The live session loads the MediaPipe estimator in the browser. */
 export function createPoseEstimator(): PoseEstimator {
   return new UnavailablePoseEstimator();
 }

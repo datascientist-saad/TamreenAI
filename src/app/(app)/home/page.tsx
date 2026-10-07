@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DemoBanner, EmptyState, ExplainList, SafetyBanner } from "@/components/states";
 import { LoadChart } from "@/features/dashboard/load-chart";
-import { greeting, sportLabel } from "@/lib/utils";
+import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
 import { loadHome } from "@/server/queries";
 import { recommendedWeeklyLoad } from "@/services/training/engine";
 
@@ -44,8 +44,12 @@ export default async function HomePage() {
           <p className="eyebrow">Today</p>
           <h1 className="text-4xl font-extrabold">{greeting(name, data.hour)}</h1>
         </div>
-        {data.profile?.is_demo ? <DemoBanner /> : null}
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn btn-primary" href="/plan">Open plan</Link>
+          {data.profile?.is_demo ? <DemoBanner /> : null}
+        </div>
       </header>
+      <WeekStrip today={data.today} workouts={data.weekWorkouts} />
       {data.readiness?.blocked_for_safety ? <SafetyBanner /> : null}
       <section className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
         <article className="app-card p-5">
@@ -137,6 +141,44 @@ export default async function HomePage() {
         </article>
       ) : null}
     </main>
+  );
+}
+
+function WeekStrip({
+  today,
+  workouts,
+}: {
+  today: string;
+  workouts: Array<{ id: string; scheduled_date: string; sport: string; title: string; duration_min: number; status: string }>;
+}) {
+  const days = Array.from({ length: 7 }, (_, index) => shiftIsoDate(today, index));
+  return (
+    <section className="app-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-bold">This week</h2>
+        <Link className="text-sm font-bold text-maroon" href="/plan">Full plan</Link>
+      </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        {days.map((date) => {
+          const rows = workouts.filter((workout) => workout.scheduled_date === date);
+          const first = rows[0];
+          const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
+          return (
+            <Link
+              key={date}
+              href={first ? `/train/${first.id}` : "/plan"}
+              className={`min-w-36 rounded-2xl border px-3 py-3 ${date === today ? "border-maroon bg-maroon text-white" : "border-line bg-paper"}`}
+            >
+              <span className="text-xs font-bold uppercase tracking-wide">{date === today ? "Today" : label}</span>
+              <span className="mt-1 block font-bold">{first ? first.title : "Rest"}</span>
+              <span className={`mt-1 block text-xs ${date === today ? "text-white/80" : "text-muted"}`}>
+                {first ? `${first.duration_min} min${rows.length > 1 ? ` · +${rows.length - 1}` : ""}` : "Open plan"}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

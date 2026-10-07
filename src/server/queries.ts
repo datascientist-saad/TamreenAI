@@ -1,4 +1,4 @@
-import { daysUntil, hourInTimeZone, todayInTimeZone } from "@/lib/utils";
+import { daysUntil, hourInTimeZone, shiftIsoDate, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "./guard";
 
 export async function loadShell() {
@@ -32,8 +32,10 @@ export async function loadHome() {
   const weekStart = new Date(`${today}T00:00:00Z`);
   weekStart.setUTCDate(weekStart.getUTCDate() - 6);
   const from = weekStart.toISOString().slice(0, 10);
+  const weekEnd = shiftIsoDate(today, 6);
   const [
     todayWorkouts,
+    weekWorkouts,
     readiness,
     scores,
     event,
@@ -49,6 +51,14 @@ export async function loadHome() {
       .eq("scheduled_date", today)
       .is("deleted_at", null)
       .order("importance"),
+    shell.supabase
+      .from("workouts")
+      .select("id, scheduled_date, sport, title, duration_min, status")
+      .eq("user_id", shell.user.id)
+      .gte("scheduled_date", today)
+      .lte("scheduled_date", weekEnd)
+      .is("deleted_at", null)
+      .order("scheduled_date"),
     shell.supabase
       .from("readiness_scores")
       .select("overall, sleep, recovery, recent_load, muscle_fatigue, cardio_fatigue, explanation, train_recommendation, blocked_for_safety, factors, data_origin")
@@ -109,6 +119,8 @@ export async function loadHome() {
     today,
     hour: hourInTimeZone(shell.timeZone),
     todayWorkouts: todayWorkouts.data ?? [],
+    weekWorkouts: weekWorkouts.data ?? [],
+    weekEnd,
     readiness: readiness.data,
     scores: [...latestScores.values()],
     event: event.data ? { ...event.data, days: daysUntil(event.data.starts_on, today) } : null,

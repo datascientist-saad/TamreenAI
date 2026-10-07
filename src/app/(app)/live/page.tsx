@@ -12,7 +12,7 @@ export default async function LiveIndexPage() {
     .order("started_at", { ascending: false })
     .limit(5);
   return (
-    <PageFrame eyebrow="Live training" title="Camera session" lede="The camera feed is real. Reps are counted by you. Form scores stay empty until a pose model is connected.">
+    <PageFrame eyebrow="Live training" title="Camera session" lede="The pose model runs on this device. Reps update from the camera when your body is visible, and you can still count them yourself. Form scores stay blank when the view is too short or the body leaves the frame.">
       <ul className="grid gap-2">
         {LIVE_EXERCISES.map((exercise) => (
           <li key={exercise.slug}>
