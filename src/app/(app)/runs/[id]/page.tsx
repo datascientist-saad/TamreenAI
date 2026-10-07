@@ -20,7 +20,7 @@ export default async function RunAnalysisPage({ params }: { params: Promise<{ id
 
   return (
     <PageFrame eyebrow="Run analysis" title={owner?.title ?? "Run"} lede={session.insight ?? "No insight was stored because the inputs were incomplete."}>
-      {owner?.data_origin === "demo" ? <p className="text-sm font-bold">Demo session. This is seeded history, not a live measurement.</p> : null}
+      {owner?.data_origin === "demo" ? <p className="text-sm font-bold">Demo data. This row is labeled so it is not treated as a device or pose measurement.</p> : null}
       <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Metric label="Distance" value={`${Math.round(Number(session.distance_m))} m`} />
         <Metric label="Time" value={formatClock(session.duration_seconds)} />
