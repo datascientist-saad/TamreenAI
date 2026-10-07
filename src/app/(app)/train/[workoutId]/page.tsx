@@ -4,13 +4,14 @@ import { PageFrame } from "@/components/page";
 import { StrengthLogger, type LoggerExercise } from "@/features/strength/logger";
 import { sportLabel } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
+import { poseSlugFor } from "@/services/live/pose";
 
 export default async function TrainPage({ params }: { params: Promise<{ workoutId: string }> }) {
   const { workoutId } = await params;
   const { supabase, user } = await requireUser();
   const { data: workout } = await supabase
     .from("workouts")
-    .select("id, sport, title, objective, duration_min, intensity, why_text, status, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, exercise_library(name))")
+    .select("id, sport, title, objective, duration_min, intensity, why_text, status, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, exercise_library(slug, name))")
     .eq("id", workoutId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -33,6 +34,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
   const exercises: LoggerExercise[] = (workout.workout_exercises ?? []).map((row) => {
     const library = Array.isArray(row.exercise_library) ? row.exercise_library[0] : row.exercise_library;
     const name = library?.name ?? "Exercise";
+    const librarySlug = library && "slug" in library ? library.slug : null;
     return {
       id: row.exercise_id,
       name,
@@ -40,6 +42,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
       reps: row.reps,
       why: row.why_text,
       last: last.get(name) ?? null,
+      cameraHref: librarySlug && poseSlugFor(librarySlug) ? `/live/${librarySlug}?workout=${workout.id}` : null,
     };
   });
   const strength = workout.sport === "strength" || workout.sport === "bodybuilding";
@@ -52,7 +55,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
         <StrengthLogger
           workoutId={workout.id}
           title={workout.title}
-          exercises={exercises.length ? exercises : [{ id: null, name: workout.title, sets: 3, reps: "5", why: workout.why_text, last: last.get(workout.title) ?? null }]}
+          exercises={exercises.length ? exercises : [{ id: null, name: workout.title, sets: 3, reps: "5", why: workout.why_text, last: last.get(workout.title) ?? null, cameraHref: null }]}
           weightUnit={settings?.weight_unit === "lb" ? "lb" : "kg"}
         />
       ) : (
@@ -63,7 +66,6 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
           {workout.sport === "mobility" || workout.sport === "recovery" ? <Link className="btn btn-primary" href="/recovery">Log recovery</Link> : null}
         </div>
       )}
-      {strength ? <Link className="btn btn-ghost" href={`/live/squat`}>Open live camera</Link> : null}
     </PageFrame>
   );
 }

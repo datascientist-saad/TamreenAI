@@ -28,7 +28,7 @@ import {
 } from "@/services/training/engine";
 import { todayInTimeZone } from "@/lib/utils";
 import { MIN_POSE_FRAMES } from "@/services/live/geometry";
-import { LIVE_EXERCISES, POSE_MODEL_NAME, type ModelFormPayload } from "@/services/live/pose";
+import { POSE_MODEL_NAME, resolvePlanExercise, type ModelFormPayload } from "@/services/live/pose";
 import { requireUser } from "./guard";
 
 async function limit(action: string, maxCalls: number, windowSeconds: number) {
@@ -851,12 +851,13 @@ export async function saveLiveSession(input: {
   model?: ModelFormPayload | null;
 }) {
   const { supabase, user } = await limit("live_session", 30, 3600);
-  if (!LIVE_EXERCISES.some((exercise) => exercise.slug === input.exerciseSlug)) {
+  const planned = resolvePlanExercise(input.exerciseSlug);
+  if (!planned) {
     throw new Error("That exercise is not in the live library.");
   }
   const model = acceptedPose(input.model);
   const scored = Boolean(model && model.overall != null && model.metrics.length);
-  const placeholder = !scored && input.savePlaceholder && input.exerciseSlug === "squat";
+  const placeholder = !scored && input.savePlaceholder && planned.poseSlug === "squat";
   const reps = clampInt(input.manualReps, 0, 2000);
   const analysisSource = scored || (model && !placeholder) ? "model" : placeholder ? "placeholder_demo" : reps > 0 ? "manual" : "unavailable";
   const { data, error } = await supabase.from("live_training_sessions").insert({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { displayToKg, kgToDisplay } from "@/lib/utils";
 import { logStrength } from "@/server/actions";
@@ -12,6 +13,7 @@ export interface LoggerExercise {
   reps: string;
   why: string;
   last: { weightKg: number; reps: number } | null;
+  cameraHref: string | null;
 }
 
 interface DraftSet {
@@ -119,6 +121,7 @@ export function StrengthLogger({
                 {exercise.why}
               </p>
             ) : null}
+            {exercise.cameraHref ? <Link className="btn btn-primary mt-3" href={exercise.cameraHref}>Train with camera</Link> : null}
           </article>
         );
       })}

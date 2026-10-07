@@ -132,6 +132,37 @@ export interface LiveExercise {
   setup: string;
 }
 
+/** Plan-library slugs that use a camera rule. Movements without a rule are logged, not scored. */
+const PLAN_POSE: Record<string, string> = {
+  back_squat: "squat",
+  goblet_squat: "squat",
+  deadlift: "deadlift",
+  bench_press: "bench_press",
+  overhead_press: "overhead_press",
+  walking_lunge: "lunge",
+  split_squat: "lunge",
+  romanian_deadlift: "romanian_deadlift",
+  single_leg_rdl: "romanian_deadlift",
+  push_up: "push_up",
+  pull_up: "pull_up",
+  bicep_curl: "bicep_curl",
+  plank: "plank",
+};
+
+export function poseSlugFor(slug: string): string | null {
+  if (LIVE_EXERCISES.some((exercise) => exercise.slug === slug)) return slug;
+  return PLAN_POSE[slug] ?? null;
+}
+
+export function resolvePlanExercise(slug: string): (LiveExercise & { poseSlug: string }) | null {
+  const poseSlug = poseSlugFor(slug);
+  if (!poseSlug) return null;
+  const pose = LIVE_EXERCISES.find((exercise) => exercise.slug === poseSlug);
+  if (!pose) return null;
+  if (pose.slug === slug) return { ...pose, poseSlug };
+  return { ...pose, slug, poseSlug };
+}
+
 export const LIVE_EXERCISES: LiveExercise[] = [
   { slug: "squat", name: "Squat", setup: "Side-on, full body in frame, feet visible.", cues: ["Depth", "Knee tracking", "Torso angle", "Tempo"] },
   { slug: "deadlift", name: "Deadlift", setup: "Side-on, bar path visible.", cues: ["Bar path", "Hip hinge", "Lockout", "Tempo"] },

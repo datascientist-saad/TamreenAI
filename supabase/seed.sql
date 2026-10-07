@@ -98,6 +98,7 @@ declare
   completed_id uuid;
   lower_id uuid;
   vo2_id uuid;
+  upper_id uuid;
 begin
   update public.profiles
   set date_of_birth = date '1994-04-12',
@@ -254,9 +255,14 @@ begin
     plan_id, user_id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, data_origin
   ) values
     (plan_id, athlete, current_date, 'running', 'Zone 2 run', 'Aerobic support', 35, 'easy', 25, 'supporting', 18, 'planned',
-      'Yesterday''s lower-body work is still in the legs, so the interval session is not today. Easy running keeps the aerobic week without asking for speed.', 'demo'),
-    (plan_id, athlete, current_date, 'strength', 'Upper-body strength', 'Keep pressing strength while the legs recover', 50, 'moderate', 50, 'supporting', 24, 'planned',
-      'Upper-body work does not add to the lower-body fatigue that tomorrow''s squat session and the later interval run both need.', 'demo');
+      'Yesterday''s lower-body work is still in the legs, so the interval session is not today. Easy running keeps the aerobic week without asking for speed.', 'demo');
+
+  insert into public.workouts (
+    plan_id, user_id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, data_origin
+  ) values (
+    plan_id, athlete, current_date, 'strength', 'Upper-body strength', 'Keep pressing strength while the legs recover', 50, 'moderate', 50, 'supporting', 24, 'planned',
+    'Upper-body work does not add to the lower-body fatigue that tomorrow''s squat session and the later interval run both need.', 'demo'
+  ) returning id into upper_id;
 
   insert into public.workouts (
     id, plan_id, user_id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, data_origin
@@ -273,6 +279,19 @@ begin
     'Running speed for the 70.3 run leg', 45, 'vo2', 70, 'key', 36, 'planned',
     'Short intervals raise the ceiling. They are placed after a recovery day from the heavy squat when the schedule is optimized.', 'demo'
   ) returning id into vo2_id;
+
+  insert into public.workout_exercises (workout_id, exercise_id, sort_order, set_count, reps, why_text)
+  select upper_id, id, 1, 4, '6', 'Why Tamreen chose this: horizontal pressing strength that does not load the legs before the run.'
+  from public.exercise_library where slug = 'bench_press';
+  insert into public.workout_exercises (workout_id, exercise_id, sort_order, set_count, reps, why_text)
+  select upper_id, id, 2, 3, '5', 'Why Tamreen chose this: vertical pulling strength for the swim and for shoulder balance.'
+  from public.exercise_library where slug = 'pull_up';
+  insert into public.workout_exercises (workout_id, exercise_id, sort_order, set_count, reps, why_text)
+  select upper_id, id, 3, 3, '40s', 'Why Tamreen chose this: trunk stiffness without extra lower-body fatigue.'
+  from public.exercise_library where slug = 'plank';
+  insert into public.workout_exercises (workout_id, exercise_id, sort_order, set_count, reps, why_text)
+  select upper_id, id, 4, 3, '12', 'Why Tamreen chose this: shoulder balance after pressing.'
+  from public.exercise_library where slug = 'face_pull';
 
   insert into public.workout_exercises (workout_id, exercise_id, sort_order, set_count, reps, why_text)
   select lower_id, id, 1, 4, '5', 'Why Tamreen chose this: heavy squats keep absolute strength while the week still has a hard run.'

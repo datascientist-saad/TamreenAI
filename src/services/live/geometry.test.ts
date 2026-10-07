@@ -2,6 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PoseFrame } from "./pose";
 import { createRepState, jointAngle, sampleFrame, scoreMovement, updateRep } from "./geometry";
+import { poseSlugFor } from "./pose";
+
+test("plan lifts use the pose rule for that movement", () => {
+  assert.equal(poseSlugFor("back_squat"), "squat");
+  assert.equal(poseSlugFor("single_leg_rdl"), "romanian_deadlift");
+  assert.equal(poseSlugFor("walking_lunge"), "lunge");
+  assert.equal(poseSlugFor("squat"), "squat");
+  assert.equal(poseSlugFor("face_pull"), null);
+  assert.equal(poseSlugFor("lat_pulldown"), null);
+  assert.equal(poseSlugFor("calf_raise"), null);
+});
 
 test("joint angle is 90 degrees at a corner and 180 on a straight line", () => {
   const right = jointAngle({ x: 0, y: 1 }, { x: 0, y: 0 }, { x: 1, y: 0 });

@@ -17,8 +17,18 @@ import { saveLiveSession } from "@/server/actions";
 
 const SAMPLE_CAP = 3600;
 
-export function LiveSession({ slug }: { slug: string }) {
-  const exercise = LIVE_EXERCISES.find((item) => item.slug === slug);
+export function LiveSession({
+  slug,
+  poseSlug,
+  name,
+  prescription,
+}: {
+  slug: string;
+  poseSlug: string;
+  name: string;
+  prescription?: { sets: number; reps: string; why: string } | null;
+}) {
+  const exercise = LIVE_EXERCISES.find((item) => item.slug === poseSlug);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const samplesRef = useRef<MovementSample[]>([]);
@@ -77,14 +87,14 @@ export function LiveSession({ slug }: { slug: string }) {
             if (pausedRef.current) return;
             const sample = sampleFrame(frame);
             if (samplesRef.current.length < SAMPLE_CAP) samplesRef.current.push(sample);
-            repRef.current = updateRep(slug, repRef.current, sample);
+            repRef.current = updateRep(poseSlug, repRef.current, sample);
             const now = performance.now();
             if (now - lastUi < 200) return;
             lastUi = now;
-            const reading = scoreMovement(slug, samplesRef.current);
+            const reading = scoreMovement(poseSlug, samplesRef.current);
             const current = Math.max(0, repRef.current.count - setBaselineRef.current + adjustRef.current);
             setSetReps(current);
-            setCue(reading.cue || liveCue(slug, repRef.current.phase, reading.inFrame));
+            setCue(reading.cue || liveCue(poseSlug, repRef.current.phase, reading.inFrame));
             setFormScore(reading.overall);
             setModel(reading.inFrame ? "tracking" : "missing");
           });
@@ -105,7 +115,7 @@ export function LiveSession({ slug }: { slug: string }) {
       estimator.stop();
       stream?.getTracks().forEach((track) => track.stop());
     };
-  }, [slug]);
+  }, [poseSlug]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -141,7 +151,7 @@ export function LiveSession({ slug }: { slug: string }) {
   async function finish(formData: FormData) {
     setSaving(true);
     setError(null);
-    const reading = scoreMovement(slug, samplesRef.current);
+    const reading = scoreMovement(poseSlug, samplesRef.current);
     const totalReps = committedRef.current + currentSetReps();
     const modelPayload = modelReadyRef.current && reading.trackedFrames >= 12
       ? {
@@ -156,7 +166,7 @@ export function LiveSession({ slug }: { slug: string }) {
       : null;
     try {
       const saved = await saveLiveSession({
-        exerciseSlug: exercise!.slug,
+        exerciseSlug: slug,
         durationSeconds: seconds,
         manualReps: totalReps,
         manualSets: setCount,
@@ -220,8 +230,10 @@ export function LiveSession({ slug }: { slug: string }) {
         </div>
       </section>
       <article className="app-card p-4">
-        <p className="eyebrow">{exercise.name}</p>
+        <p className="eyebrow">{name}</p>
         <p className="mt-2">{exercise.setup}</p>
+        {prescription ? <p className="mt-2 text-sm font-bold">Plan: {prescription.sets} sets × {prescription.reps}</p> : null}
+        {prescription?.why ? <p className="mt-2 text-sm text-muted">{prescription.why}</p> : null}
         <p className="mt-3 text-sm font-bold">Coaching cues</p>
         <ul className="mt-2 grid gap-1 text-sm text-muted">
           {exercise.cues.map((item) => <li key={item}>{item}</li>)}
@@ -235,7 +247,7 @@ export function LiveSession({ slug }: { slug: string }) {
         <button className="btn btn-ghost" type="button" onClick={() => setPaused((value) => !value)}>{paused ? "Resume" : "Pause"}</button>
       </div>
       <form action={finish} className="app-card grid gap-3 p-4">
-        {slug === "squat" && formScore == null ? (
+        {poseSlug === "squat" && formScore == null ? (
           <label className="text-sm">
             <span className="flex items-center gap-2 font-bold">
               <input className="h-5 w-5" name="placeholder" type="checkbox" />
