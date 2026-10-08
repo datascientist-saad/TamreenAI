@@ -43,6 +43,23 @@
 * { box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
+section[id] { scroll-margin-top: 7rem; }
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 50;
+  border-radius: 0.8rem;
+  background: #ffffff;
+  color: #1f1115;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}
 
 body {
   margin: 0;
@@ -86,10 +103,20 @@ button, a, input, select, textarea { font: inherit; }
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-size: 0.72rem;
-  color: var(--maroon);
+  color: #8a1538;
 }
 
-.dark .eyebrow { color: var(--gold); }
+.dark .eyebrow { color: #f3e6cf; }
+
+.eyebrow-on-dark {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: #f3e6cf;
+}
+
+.dark .text-maroon { color: #f3e6cf; }
 
 input, select, textarea {
   width: 100%;
@@ -119,11 +146,24 @@ label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
   text-decoration: none;
 }
 
-.btn-primary { background: var(--maroon); color: white; }
+.btn-primary { background: #8a1538; color: #ffffff; }
 .btn-primary:hover { background: #73122f; }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
-.btn-gold { background: var(--gold); color: #3d0e1f; }
+.btn-on-dark {
+  background: transparent;
+  color: #ffffff;
+  border-color: #ffffff;
+}
+.btn-on-dark:hover { background: rgba(255, 255, 255, 0.14); }
+.btn-gold { background: #c9a876; color: #3d0e1f; }
+.btn-gold:hover { background: #d8bc90; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px #8a1538;
+}
 
 .chip {
   display: inline-flex;
@@ -136,16 +176,17 @@ label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
   text-transform: uppercase;
 }
 
-.sport-running { background: rgba(138, 21, 56, 0.12); color: var(--maroon); }
+.sport-running { background: rgba(138, 21, 56, 0.12); color: #8a1538; }
 .sport-cycling { background: rgba(201, 168, 118, 0.28); color: #6d5428; }
 .sport-swimming { background: rgba(47, 93, 120, 0.12); color: #24556f; }
 .sport-strength, .sport-bodybuilding { background: #1f1115; color: white; }
 .sport-brick { background: var(--maroon); color: white; }
 .sport-mobility, .sport-recovery { background: var(--line); color: var(--ink); }
 
+.dark .sport-running { background: rgba(246, 213, 222, 0.16); color: #f6d5de; }
 .dark .sport-cycling { color: #f3e6cf; }
 .dark .sport-swimming { color: #d5e7f2; }
-.dark .sport-strength, .dark .sport-bodybuilding { background: #2a171d; }
+.dark .sport-strength, .dark .sport-bodybuilding { background: #2a171d; color: #ffffff; }
 
 .skeleton {
   background: linear-gradient(90deg, var(--line), transparent, var(--line));
@@ -157,4 +198,15 @@ label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
 @keyframes shimmer {
   0% { background-position: 100% 0; }
   100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .skeleton { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

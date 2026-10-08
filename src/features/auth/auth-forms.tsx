@@ -65,9 +65,13 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
   const router = useRouter();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_AUTH === "true";
   const title = mode === "login" ? "Sign in" : "Create your athlete account";
+  const subtitle = googleEnabled
+    ? "Use your email and password, or continue with Google."
+    : "Use your email and password.";
   return (
-    <Shell title={title} subtitle="Email and password, or Google if it is enabled for this project.">
+    <Shell title={title} subtitle={subtitle}>
       <form className="grid gap-3" onSubmit={async (event) => {
         event.preventDefault();
         setError("");
@@ -100,15 +104,17 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
         {notice ? <p className="text-sm">{notice}</p> : null}
         <button className="btn btn-primary" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button>
       </form>
-      <button className="btn btn-ghost mt-3 w-full" type="button" onClick={async () => {
-        setError("");
-        const supabase = createClient();
-        const { error: authError } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo: `${window.location.origin}/auth/callback` },
-        });
-        if (authError) setError(authError.message);
-      }}>Continue with Google</button>
+      {googleEnabled ? (
+        <button className="btn btn-ghost mt-3 w-full" type="button" onClick={async () => {
+          setError("");
+          const supabase = createClient();
+          const { error: authError } = await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: { redirectTo: `${window.location.origin}/auth/callback` },
+          });
+          if (authError) setError(authError.message);
+        }}>Continue with Google</button>
+      ) : null}
       <p className="mt-4 text-sm text-muted">
         {mode === "login" ? <Link href="/forgot-password">Forgot password</Link> : null}
         {" "}
