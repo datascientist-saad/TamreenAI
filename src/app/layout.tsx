@@ -19,7 +19,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#8A1538",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f4f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#10080c" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -27,7 +30,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${outfit.variable} ${mono.variable}`}>
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth" className={`${outfit.variable} ${mono.variable}`}>
       <head>
         <script
           dangerouslySetInnerHTML={{

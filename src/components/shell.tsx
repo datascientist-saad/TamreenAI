@@ -69,25 +69,23 @@ export function AppShell({
         </div>
       </aside>
       <div className="safe-bottom md:pb-0">
-        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-line bg-card/95 px-4 py-3 backdrop-blur md:hidden">
-          <Link href="/home" aria-label="Tamreen home"><Mark /></Link>
-          <Link href="/plan" className={cn("btn min-h-10 px-4", pathname === "/plan" || pathname.startsWith("/plan/") ? "btn-primary" : "btn-ghost")}>Plan</Link>
-          <ThemeToggle />
+        <header className="sticky top-0 z-40 flex items-center justify-between bg-paper px-3 pt-[max(0.25rem,env(safe-area-inset-top))] md:hidden">
+          <Link href="/home" aria-label="Tamreen home" className="grid h-11 w-11 place-items-center">
+            <Mark size={28} />
+          </Link>
+          <ThemeToggle compact />
         </header>
         {children}
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label="Mobile">
-        <ul className="grid grid-cols-5">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile">
+        <ul className="grid h-16 grid-cols-5">
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             const Icon = tab.icon;
-            const live = tab.href === "/live";
             return (
-              <li key={tab.href} className="grid place-items-center py-2">
-                <Link href={tab.href} className={cn("grid min-h-12 min-w-12 place-items-center text-[11px] font-bold", active ? "text-maroon" : "text-muted")}>
-                  <span className={cn("grid h-10 w-10 place-items-center rounded-full", live && "bg-maroon text-white shadow-lg")}>
-                    <Icon size={18} />
-                  </span>
+              <li key={tab.href}>
+                <Link href={tab.href} className={cn("grid h-full place-items-center gap-1 text-[10px] font-semibold tracking-wide", active ? "text-maroon" : "text-muted")} aria-current={active ? "page" : undefined}>
+                  <Icon size={22} strokeWidth={active ? 2.4 : 1.75} />
                   {tab.label}
                 </Link>
               </li>

@@ -15,7 +15,7 @@ const options: Array<{ id: ThemeChoice; label: string; icon: typeof Sun }> = [
 
 const listeners = new Set<() => void>();
 
-export function ThemeToggle({ persist = true, onDark = false }: { persist?: boolean; onDark?: boolean }) {
+export function ThemeToggle({ persist = true, onDark = false, compact = false }: { persist?: boolean; onDark?: boolean; compact?: boolean }) {
   const mode = useSyncExternalStore(subscribe, readTheme, () => "system" as ThemeChoice);
 
   function choose(next: ThemeChoice) {
@@ -23,6 +23,24 @@ export function ThemeToggle({ persist = true, onDark = false }: { persist?: bool
     for (const listener of listeners) listener();
     if (!persist) return;
     void updateTheme(next).catch(() => undefined);
+  }
+
+  if (compact) {
+    const current = options.find((option) => option.id === mode) ?? options[2];
+    const Icon = current.icon;
+    return (
+      <button
+        type="button"
+        className="grid h-11 w-11 place-items-center rounded-full text-ink"
+        aria-label={`Appearance, ${current.label}. Change appearance.`}
+        onClick={() => {
+          const index = options.findIndex((option) => option.id === mode);
+          choose(options[(index + 1) % options.length].id);
+        }}
+      >
+        <Icon size={20} />
+      </button>
+    );
   }
 
   return (
@@ -78,4 +96,6 @@ function applyTheme(next: ThemeChoice) {
   const dark = next === "dark" || (next === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
   window.localStorage.setItem("tamreen-theme", next === "system" ? "" : next);
+  const color = dark ? "#10080c" : "#f7f4f2";
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", color);
 }
