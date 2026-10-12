@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { PageFrame } from "@/components/page";
 import { submitFeedback } from "@/server/actions";
 import { requireUser } from "@/server/guard";
@@ -33,9 +34,14 @@ export default async function MorePage() {
   ].filter((item): item is [string, string] => Boolean(item));
   return (
     <PageFrame eyebrow="More" title="The rest of Tamreen">
-      <ul className="grid gap-2">
+      <ul className="app-card divide-y divide-line overflow-hidden">
         {[...links, ...extra].map(([href, label]) => (
-          <li key={href}><Link className="app-card block px-4 py-3 font-semibold" href={href}>{label}</Link></li>
+          <li key={href}>
+            <Link className="flex min-h-12 items-center justify-between gap-3 px-4 py-3 font-semibold" href={href}>
+              {label}
+              <ChevronRight size={18} className="text-muted" aria-hidden="true" />
+            </Link>
+          </li>
         ))}
       </ul>
       <form action={async (formData) => { "use server"; await submitFeedback(String(formData.get("body") || "")); }} className="app-card grid gap-3 p-4">

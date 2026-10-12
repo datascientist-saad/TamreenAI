@@ -28,12 +28,12 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
 
   return (
     <PageFrame eyebrow="Training plan" title={plan?.name ?? "No active plan"} lede={plan?.explanation}>
-      <div className="sticky top-16 z-20 -mx-4 flex flex-wrap gap-2 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur md:top-0">
+      <div className="sticky top-[calc(2.75rem+env(safe-area-inset-top))] z-20 -mx-4 flex gap-2 overflow-x-auto border-b border-line bg-paper px-4 py-3 md:top-0">
         {["today", "week", "month", "block"].map((item) => (
-          <Link key={item} className={`btn min-h-10 ${view === item ? "btn-primary" : "btn-ghost"}`} href={`/plan?view=${item}`}>{item}</Link>
+          <Link key={item} className={`btn min-h-10 shrink-0 capitalize ${view === item ? "btn-primary" : "btn-ghost"}`} href={`/plan?view=${item}`}>{item}</Link>
         ))}
         <form action={async () => { "use server"; await generatePlan(); }}>
-          <button className="btn btn-gold min-h-10" type="submit">Rebuild plan</button>
+          <button className="btn btn-gold min-h-10 shrink-0" type="submit">Rebuild plan</button>
         </form>
       </div>
       {view === "block" ? (
