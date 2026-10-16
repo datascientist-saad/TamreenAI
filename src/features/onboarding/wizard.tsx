@@ -34,6 +34,13 @@ const goals = [
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const goalGroups = [
+  ["Strength", ["build_muscle", "lose_fat", "recomposition", "increase_strength"]],
+  ["Running", ["improve_5k", "improve_10k", "half_marathon", "marathon"]],
+  ["Triathlon", ["sprint_triathlon", "olympic_triathlon", "ironman_70_3", "ironman"]],
+  ["Other", ["improve_cycling", "improve_swimming", "general_hybrid", "custom"]],
+] as const;
+
 export function OnboardingWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -47,6 +54,23 @@ export function OnboardingWizard() {
 
   function toggle(list: string[], value: string, set: (next: string[]) => void) {
     set(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+  }
+
+  function chooseGoal(slug: string) {
+    const selected = goalPicked.includes(slug);
+    if (!selected) {
+      setGoals([...goalPicked, slug]);
+      if (!goalPicked.includes(primary)) setPrimary(slug);
+      return;
+    }
+    if (primary !== slug) {
+      setPrimary(slug);
+      return;
+    }
+    const next = goalPicked.filter((item) => item !== slug);
+    if (!next.length) return;
+    setGoals(next);
+    setPrimary(next[0]);
   }
 
   return (
@@ -154,16 +178,34 @@ export function OnboardingWizard() {
         </fieldset>
       ) : null}
       {step === 2 ? (
-        <div className="grid gap-2">
-          <p className="font-bold">Choose goals. One is primary.</p>
-          {goals.map(([slug, label]) => (
-            <label key={slug} className="flex items-center justify-between rounded-xl border border-line px-3 py-2">
-              <span>{label}</span>
-              <span className="flex gap-3 text-sm">
-                <input type="checkbox" checked={goalPicked.includes(slug)} onChange={() => toggle(goalPicked, slug, setGoals)} />
-                <input type="radio" name="primary" checked={primary === slug} onChange={() => setPrimary(slug)} />
-              </span>
-            </label>
+        <div className="grid gap-4">
+          <p className="text-sm text-muted">Tap a goal to include it. Tap a selected goal to make it the primary one.</p>
+          {goalGroups.map(([group, slugs]) => (
+            <fieldset key={group} className="grid gap-2">
+              <legend className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group}</legend>
+              {slugs.map((slug) => {
+                const label = goals.find(([id]) => id === slug)?.[1] ?? slug;
+                const selected = goalPicked.includes(slug);
+                const isPrimary = primary === slug && selected;
+                return (
+                  <button
+                    key={slug}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => chooseGoal(slug)}
+                    className={`flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${isPrimary ? "border-[#8a1538] bg-[#8a1538] text-white" : selected ? "border-[#8a1538] bg-card text-ink dark:border-[#f3c1cf]" : "border-line bg-card text-ink"}`}
+                  >
+                    <span>{label}</span>
+                    <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em]">
+                      {isPrimary ? "Primary" : null}
+                      <span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded-full border-2 ${isPrimary ? "border-white" : selected ? "border-[#8a1538] dark:border-[#f3c1cf]" : "border-current opacity-40"}`}>
+                        {selected ? <span className={`h-2.5 w-2.5 rounded-full ${isPrimary ? "bg-white" : "bg-[#8a1538] dark:bg-[#f3c1cf]"}`} /> : null}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </fieldset>
           ))}
           <label>Custom wording<input name="customGoal" /></label>
         </div>
