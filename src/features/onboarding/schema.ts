@@ -30,20 +30,21 @@ export const goals = [
   ["custom", "Custom"],
 ] as const;
 
+const mark = z.number().positive().nullable().optional();
 const benchmarkSchema = z.object({
-  fiveKSeconds: z.number().int().positive().nullable(),
-  tenKSeconds: z.number().int().positive().nullable(),
-  halfSeconds: z.number().int().positive().nullable(),
-  marathonSeconds: z.number().int().positive().nullable(),
-  weeklyRunKm: z.number().nonnegative().nullable(),
-  ftpWatts: z.number().int().positive().nullable(),
-  weeklyBikeKm: z.number().nonnegative().nullable(),
-  swim100Seconds: z.number().int().positive().nullable(),
-  swim400Seconds: z.number().int().positive().nullable(),
-  weeklySwimM: z.number().nonnegative().nullable(),
-  squatKg: z.number().positive().nullable(),
-  benchKg: z.number().positive().nullable(),
-  deadliftKg: z.number().positive().nullable(),
+  fiveKSeconds: mark,
+  tenKSeconds: mark,
+  halfSeconds: mark,
+  marathonSeconds: mark,
+  weeklyRunKm: mark,
+  ftpWatts: mark,
+  weeklyBikeKm: mark,
+  swim100Seconds: mark,
+  swim400Seconds: mark,
+  weeklySwimM: mark,
+  squatKg: mark,
+  benchKg: mark,
+  deadliftKg: mark,
 });
 
 export const onboardingSchema = z.object({

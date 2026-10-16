@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { clockToSeconds, emptyClock, type ClockParts } from "@/lib/clock";
+import { formatClock } from "@/lib/utils";
 import { saveOnboarding } from "@/server/actions";
 import { goals, sports } from "./schema";
 
@@ -32,6 +34,21 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
   const [pool, setPool] = useState(false);
   const [bike, setBike] = useState(false);
   const [equipmentTouched, setEquipmentTouched] = useState(false);
+  const [marks, setMarks] = useState({
+    fiveK: emptyClock(),
+    tenK: emptyClock(),
+    half: emptyClock(),
+    marathon: emptyClock(),
+    swim100: emptyClock(),
+    swim400: emptyClock(),
+    weeklyRunKm: "",
+    weeklyBikeKm: "",
+    weeklySwimM: "",
+    ftp: "",
+    squat: "",
+    bench: "",
+    deadlift: "",
+  });
 
   function toggleSport(slug: string) {
     setPicked((current) => (current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug]));
@@ -69,11 +86,81 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
       setError("Minutes per day need to be between 15 and 360.");
       return;
     }
+    const clockError = markError();
+    if (clockError) {
+      setError(clockError);
+      return;
+    }
     setStep(2);
   }
 
   const goalLabel = goals.find(([slug]) => slug === goal)?.[1] ?? goal;
   const sportLabels = sports.filter(([slug]) => picked.includes(slug)).map(([, label]) => label);
+  const runs = picked.includes("running") || picked.includes("triathlon");
+  const rides = picked.includes("cycling") || picked.includes("triathlon");
+  const swims = picked.includes("swimming") || picked.includes("triathlon");
+  const lifts = picked.includes("strength") || picked.includes("bodybuilding");
+
+  function setClock(key: "fiveK" | "tenK" | "half" | "marathon" | "swim100" | "swim400", next: ClockParts) {
+    setMarks((current) => ({ ...current, [key]: next }));
+  }
+
+  function markError() {
+    const clocks: Array<[ClockParts, boolean, string]> = [];
+    if (runs) {
+      clocks.push([marks.fiveK, false, "5K"], [marks.tenK, false, "10K"], [marks.half, true, "Half marathon"], [marks.marathon, true, "Marathon"]);
+    }
+    if (swims) clocks.push([marks.swim100, false, "100 m swim"], [marks.swim400, false, "400 m swim"]);
+    for (const [parts, withHours, label] of clocks) {
+      const result = clockToSeconds(parts, withHours);
+      if ("error" in result) return `${label}: ${result.error}`;
+    }
+    return null;
+  }
+
+  function benchmarks() {
+    const payload: Record<string, number> = {};
+    const clocks: Array<[ClockParts, boolean, string]> = [
+      [marks.fiveK, false, "fiveKSeconds"],
+      [marks.tenK, false, "tenKSeconds"],
+      [marks.half, true, "halfSeconds"],
+      [marks.marathon, true, "marathonSeconds"],
+      [marks.swim100, false, "swim100Seconds"],
+      [marks.swim400, false, "swim400Seconds"],
+    ];
+    for (const [parts, withHours, key] of clocks) {
+      const result = clockToSeconds(parts, withHours);
+      if ("seconds" in result && result.seconds) payload[key] = result.seconds;
+    }
+    const numbers: Array<[string, string]> = [
+      ["weeklyRunKm", marks.weeklyRunKm],
+      ["weeklyBikeKm", marks.weeklyBikeKm],
+      ["weeklySwimM", marks.weeklySwimM],
+      ["ftpWatts", marks.ftp],
+      ["squatKg", marks.squat],
+      ["benchKg", marks.bench],
+      ["deadliftKg", marks.deadlift],
+    ];
+    for (const [key, raw] of numbers) {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const value = Number(trimmed);
+      if (value > 0) payload[key] = value;
+    }
+    return Object.keys(payload).length ? payload : undefined;
+  }
+
+  function markSummary() {
+    const lines: string[] = [];
+    const clocks: Array<[ClockParts, boolean, string]> = [];
+    if (runs) clocks.push([marks.fiveK, false, "5K"], [marks.tenK, false, "10K"], [marks.half, true, "Half"], [marks.marathon, true, "Marathon"]);
+    if (swims) clocks.push([marks.swim100, false, "100 m"], [marks.swim400, false, "400 m"]);
+    for (const [parts, withHours, label] of clocks) {
+      const result = clockToSeconds(parts, withHours);
+      if ("seconds" in result && result.seconds) lines.push(`${label} ${formatClock(result.seconds)}`);
+    }
+    return lines.join(" · ");
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-lg gap-5 px-4 py-4">
@@ -158,6 +245,57 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
             <ChoiceRow selected={bike} onClick={() => { setEquipmentTouched(true); setBike((value) => !value); }}>Bike</ChoiceRow>
             <ChoiceRow selected={pool} onClick={() => { setEquipmentTouched(true); setPool((value) => !value); }}>Pool</ChoiceRow>
           </div>
+          {runs || rides || swims || lifts ? (
+            <div className="grid gap-4">
+              <div>
+                <p className="font-bold">Personal bests</p>
+                <p className="mt-1 text-sm text-muted">Optional. Use minutes and seconds, and add hours for a half or marathon. Leave a race blank if you do not know it. A blank is not a score.</p>
+              </div>
+              {runs ? (
+                <>
+                  <TimeEntry label="5K" withHours={false} value={marks.fiveK} onChange={(next) => setClock("fiveK", next)} />
+                  <TimeEntry label="10K" withHours={false} value={marks.tenK} onChange={(next) => setClock("tenK", next)} />
+                  <TimeEntry label="Half marathon" withHours value={marks.half} onChange={(next) => setClock("half", next)} />
+                  <TimeEntry label="Marathon" withHours value={marks.marathon} onChange={(next) => setClock("marathon", next)} />
+                  <label>Weekly running, km
+                    <input inputMode="decimal" value={marks.weeklyRunKm} onChange={(event) => setMarks((current) => ({ ...current, weeklyRunKm: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                </>
+              ) : null}
+              {rides ? (
+                <>
+                  <label>FTP, watts
+                    <input inputMode="numeric" value={marks.ftp} onChange={(event) => setMarks((current) => ({ ...current, ftp: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                  <label>Weekly cycling, km
+                    <input inputMode="decimal" value={marks.weeklyBikeKm} onChange={(event) => setMarks((current) => ({ ...current, weeklyBikeKm: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                </>
+              ) : null}
+              {swims ? (
+                <>
+                  <TimeEntry label="100 m swim" withHours={false} value={marks.swim100} onChange={(next) => setClock("swim100", next)} />
+                  <TimeEntry label="400 m swim" withHours={false} value={marks.swim400} onChange={(next) => setClock("swim400", next)} />
+                  <label>Weekly swimming, metres
+                    <input inputMode="numeric" value={marks.weeklySwimM} onChange={(event) => setMarks((current) => ({ ...current, weeklySwimM: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                </>
+              ) : null}
+              {lifts ? (
+                <>
+                  <label>Squat, kg
+                    <input inputMode="decimal" value={marks.squat} onChange={(event) => setMarks((current) => ({ ...current, squat: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                  <label>Bench, kg
+                    <input inputMode="decimal" value={marks.bench} onChange={(event) => setMarks((current) => ({ ...current, bench: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                  <label>Deadlift, kg
+                    <input inputMode="decimal" value={marks.deadlift} onChange={(event) => setMarks((current) => ({ ...current, deadlift: event.target.value }))} placeholder="Leave blank if unknown" />
+                  </label>
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {step === 2 ? (
@@ -169,8 +307,9 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
             <Row label="Event" value={eventName.trim() ? `${eventName.trim()} · ${eventDate}` : "None. Progress uses the current block."} />
             <Row label="Schedule" value={`${preferred.length} days · ${minutes} min`} />
             <Row label="Equipment" value={[gym ? "Gym" : null, bike ? "Bike" : null, pool ? "Pool" : null].filter(Boolean).join(", ") || "None selected"} />
+            <Row label="Marks" value={markSummary() || "None entered"} />
           </dl>
-          <p className="text-muted">Tamreen rules place the sessions. When a server key is configured, the coaching model rewrites the explanation only. Benchmarks and injuries can be added later. Chest pain, fainting, severe pain, or breathlessness at rest are reasons to stop and get care.</p>
+          <p className="text-muted">Tamreen rules place the sessions. When a server key is configured, the coaching model rewrites the explanation only. Injuries can be added later. Chest pain, fainting, severe pain, or breathlessness at rest are reasons to stop and get care.</p>
         </div>
       ) : null}
       {error ? <p className="text-sm text-live">{error}</p> : null}
@@ -194,6 +333,7 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
                   primaryGoal: goal,
                   goals: [goal],
                   customGoal,
+                  benchmarks: benchmarks(),
                   preferredDays: preferred,
                   minutesPerDay: minutes,
                   gymAccess: gym,
@@ -220,6 +360,41 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+function TimeEntry({
+  label,
+  withHours,
+  value,
+  onChange,
+}: {
+  label: string;
+  withHours: boolean;
+  value: ClockParts;
+  onChange: (next: ClockParts) => void;
+}) {
+  const units = withHours
+    ? [["hours", "hr"], ["minutes", "min"], ["seconds", "sec"]] as const
+    : [["minutes", "min"], ["seconds", "sec"]] as const;
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="font-semibold">{label}</legend>
+      <div className={`grid gap-2 ${withHours ? "grid-cols-3" : "grid-cols-2"}`}>
+        {units.map(([key, unit]) => (
+          <label key={key} className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">
+            {unit}
+            <input
+              inputMode="numeric"
+              value={value[key]}
+              placeholder="—"
+              aria-label={`${label} ${unit}`}
+              onChange={(event) => onChange({ ...value, [key]: event.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
