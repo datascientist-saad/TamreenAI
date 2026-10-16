@@ -93,7 +93,7 @@ button, a, input, select, textarea { font: inherit; }
 
 .safe-bottom { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .app-card { box-shadow: none; }
 }
 
