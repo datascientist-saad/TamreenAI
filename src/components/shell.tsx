@@ -46,8 +46,8 @@ export function AppShell({
   ].filter((item): item is [string, string] => Boolean(item));
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-      <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-5 md:flex">
+    <div className="min-h-dvh lg:grid lg:min-h-screen lg:grid-cols-[240px_1fr]">
+      <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-5 lg:flex">
         <Link href="/home" aria-label="Tamreen home"><Wordmark /></Link>
         <Link href="/plan" className="btn btn-primary">Open plan</Link>
         <nav className="grid min-h-0 gap-1 overflow-y-auto" aria-label="Primary">
@@ -68,8 +68,8 @@ export function AppShell({
           <ThemeToggle />
         </div>
       </aside>
-      <div className="safe-bottom md:pb-0">
-        <header className="sticky top-0 z-40 flex items-center justify-between bg-paper px-3 pt-[max(0.25rem,env(safe-area-inset-top))] md:hidden">
+      <div className="safe-bottom lg:pb-0">
+        <header className="sticky top-0 z-40 flex items-center justify-between bg-paper/95 px-2 pt-[env(safe-area-inset-top)] backdrop-blur lg:hidden">
           <Link href="/home" aria-label="Tamreen home" className="grid h-11 w-11 place-items-center">
             <Mark size={28} />
           </Link>
@@ -77,15 +77,15 @@ export function AppShell({
         </header>
         {children}
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile">
-        <ul className="grid h-16 grid-cols-5">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-paper pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Mobile">
+        <ul className="grid h-[3.75rem] grid-cols-5">
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             const Icon = tab.icon;
             return (
               <li key={tab.href}>
-                <Link href={tab.href} className={cn("grid h-full place-items-center gap-1 text-[10px] font-semibold tracking-wide", active ? "text-maroon" : "text-muted")} aria-current={active ? "page" : undefined}>
-                  <Icon size={22} strokeWidth={active ? 2.4 : 1.75} />
+                <Link href={tab.href} className={cn("grid h-full place-items-center gap-0.5 text-[10px] font-semibold", active ? "text-maroon" : "text-muted")} aria-current={active ? "page" : undefined}>
+                  <Icon size={22} strokeWidth={active ? 2.5 : 1.75} />
                   {tab.label}
                 </Link>
               </li>

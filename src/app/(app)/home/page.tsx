@@ -38,26 +38,27 @@ export default async function HomePage() {
   }) / 7;
 
   return (
-    <main className="mx-auto grid max-w-5xl gap-6 px-4 pb-6 pt-1 md:gap-4 md:py-6">
+    <main className="mx-auto grid max-w-5xl gap-7 px-5 pb-8 pt-1 lg:gap-4 lg:px-4 lg:py-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="eyebrow hidden md:block">Today</p>
-          <h1 className="text-xl font-semibold md:text-4xl md:font-extrabold">{greeting(name, data.hour)}</h1>
-          {data.profile?.is_demo ? <p className="mt-1 text-xs text-muted md:hidden">Demo data. Seeded history is not a live measurement.</p> : null}
+          <p className="text-sm text-muted lg:hidden">{longDate(data.today)}</p>
+          <p className="eyebrow hidden lg:block">Today</p>
+          <h1 className="text-[1.7rem] font-bold leading-tight lg:text-4xl lg:font-extrabold">{greeting(name, data.hour)}</h1>
+          {data.profile?.is_demo ? <p className="mt-2 inline-flex rounded-full bg-[#f3e6cf] px-2.5 py-1 text-[11px] font-bold text-[#3d0e1f] lg:hidden">Demo data</p> : null}
         </div>
-        <div className="hidden flex-wrap gap-2 md:flex">
+        <div className="hidden flex-wrap gap-2 lg:flex">
           <Link className="btn btn-primary" href="/plan">Open plan</Link>
           {data.profile?.is_demo ? <DemoBanner /> : null}
         </div>
       </header>
-      <div className="grid gap-8 md:hidden">
+      <div className="grid gap-7 lg:hidden">
         {data.readiness?.blocked_for_safety ? <SafetyBanner /> : null}
         <WeekStrip today={data.today} workouts={data.weekWorkouts} compact />
         <ReadinessHero readiness={data.readiness} />
         <TodayList workouts={data.todayWorkouts} />
         <PerformanceList overall={overall} scores={relevant} />
       </div>
-      <div className="hidden gap-4 md:grid">
+      <div className="hidden gap-4 lg:grid">
       <WeekStrip today={data.today} workouts={data.weekWorkouts} />
       {data.readiness?.blocked_for_safety ? <SafetyBanner /> : null}
       <section className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
@@ -115,17 +116,19 @@ export default async function HomePage() {
       </section>
       </div>
       <section>
-        <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-muted md:text-base md:font-bold md:normal-case md:tracking-normal md:text-ink">Weekly load</h2>
+        <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-muted lg:text-base lg:font-bold lg:normal-case lg:tracking-normal lg:text-ink">Weekly load</h2>
         <p className="mt-1 text-sm text-muted">Completed sessions against the recommended day. The dashed line is that daily share.</p>
         {points.length ? <LoadChart points={points} target={Math.round(target)} /> : <p className="mt-4 text-sm text-muted">No completed sessions in the last 7 days.</p>}
       </section>
       {data.event ? (
-        <article className="app-card p-5">
-          <p className="eyebrow">{data.event.event_type}</p>
-          <h2 className="text-2xl font-extrabold">{data.event.name}</h2>
-          <p className="metric text-lg">{data.event.days} days remaining</p>
-          <Link className="btn btn-ghost mt-3" href={`/events/${data.event.id}`}>Event plan</Link>
-        </article>
+        <Link href={`/events/${data.event.id}`} className="flex items-center justify-between gap-3 border-t border-line py-4 lg:app-card lg:border-t-0 lg:p-5">
+          <span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{data.event.event_type}</span>
+            <span className="mt-1 block text-xl font-bold">{data.event.name}</span>
+            <span className="text-sm text-muted">{data.event.days} days remaining</span>
+          </span>
+          <span className="text-sm font-bold text-maroon">Open</span>
+        </Link>
       ) : null}
       {data.insight ? (
         <article className="app-card border-l-4 border-l-maroon p-5">
@@ -152,6 +155,17 @@ export default async function HomePage() {
       ) : null}
     </main>
   );
+}
+
+function longDate(iso: string) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function recommendationLine(explanation: string | null | undefined) {
+  if (!explanation) return "Log a check-in to score readiness.";
+  const recommendation = explanation.split("Recommendation:")[1]?.trim();
+  if (!recommendation) return explanation;
+  return recommendation.charAt(0).toUpperCase() + recommendation.slice(1);
 }
 
 function WeekStrip({
@@ -193,8 +207,9 @@ function ReadinessHero({
 }) {
   const score = readiness?.overall ?? null;
   return (
-    <section className="grid justify-items-center gap-4" aria-label="Readiness">
+    <section className="grid justify-items-center gap-3" aria-label="Readiness">
       <ScoreRing value={score} label="Readiness" />
+      {readiness?.explanation?.includes("Recommendation:") ? <p className="text-center text-base font-semibold">{recommendationLine(readiness.explanation)}</p> : null}
       <p className="max-w-sm text-center text-sm leading-6 text-muted">
         {readiness?.explanation ?? "Log a recovery check-in to score readiness. Tamreen will not invent one."}
       </p>
@@ -203,10 +218,9 @@ function ReadinessHero({
         <Stat label="Recovery" value={readiness?.recovery} plain />
         <Stat label="Load" value={readiness?.recent_load} plain />
       </dl>
-      <dl className="grid w-full grid-cols-2 gap-2 text-sm">
-        <Stat label="Muscle fatigue" value={readiness?.muscle_fatigue} />
-        <Stat label="Cardio fatigue" value={readiness?.cardio_fatigue} />
-      </dl>
+      <p className="text-center text-xs text-muted">
+        Muscle fatigue {readiness?.muscle_fatigue ?? "—"} · Cardio fatigue {readiness?.cardio_fatigue ?? "—"}
+      </p>
       <Link className="text-sm font-bold text-maroon" href="/recovery">Log recovery</Link>
     </section>
   );
