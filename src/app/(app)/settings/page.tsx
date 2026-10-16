@@ -42,7 +42,7 @@ export default async function SettingsPage() {
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Connected devices and apps</h2>
-        <p className="mb-3 text-sm text-muted">None of these providers are authorized. Tamreen will not show imported workouts.</p>
+        <p className="mb-3 text-sm text-muted">WHOOP stays disconnected until a developer client id and secret are configured. None of these providers are authorized, and Tamreen will not show imported workouts.</p>
         <DeviceList providers={wearableProviders.map((provider) => ({ id: provider.id, name: provider.displayName }))} />
       </section>
       <section className="app-card p-4">

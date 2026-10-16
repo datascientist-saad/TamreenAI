@@ -1,3 +1,4 @@
+import { trainingWindow } from "@/lib/progress";
 import { daysUntil, hourInTimeZone, shiftIsoDate, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "./guard";
 
@@ -103,7 +104,7 @@ export async function loadHome() {
       .gte("started_at", `${from}T00:00:00Z`),
     shell.supabase
       .from("training_plans")
-      .select("id, name, explanation, status")
+      .select("id, name, explanation, status, start_date, end_date")
       .eq("user_id", shell.user.id)
       .eq("status", "active")
       .is("deleted_at", null)
@@ -113,6 +114,55 @@ export async function loadHome() {
   const latestScores = new Map<string, NonNullable<typeof scores.data>[number]>();
   for (const score of scores.data ?? []) {
     if (!latestScores.has(score.dimension)) latestScores.set(score.dimension, score);
+  }
+  const activePlan = recommendation.data;
+  let progress: {
+    kind: "event" | "block";
+    label: string;
+    horizon: string;
+    daysLeft: number;
+    done: number;
+    remaining: number;
+  } | null = null;
+  if (event.data || activePlan) {
+    let kind: "event" | "block" = "block";
+    let label = activePlan?.name ?? "Training block";
+    let start = activePlan?.start_date ?? today;
+    let end = activePlan?.end_date ?? today;
+    if (event.data) {
+      kind = "event";
+      label = event.data.name;
+      end = event.data.starts_on;
+    } else if (activePlan) {
+      const { data: block } = await shell.supabase
+        .from("training_blocks")
+        .select("name, start_date, end_date")
+        .eq("user_id", shell.user.id)
+        .eq("plan_id", activePlan.id)
+        .lte("start_date", today)
+        .gte("end_date", today)
+        .order("sort_order")
+        .limit(1)
+        .maybeSingle();
+      if (block) {
+        label = block.name;
+        start = block.start_date;
+        end = block.end_date;
+      }
+    }
+    const { data: windowWorkouts } = await shell.supabase
+      .from("workouts")
+      .select("status, scheduled_date")
+      .eq("user_id", shell.user.id)
+      .gte("scheduled_date", start)
+      .lte("scheduled_date", end)
+      .is("deleted_at", null);
+    progress = {
+      kind,
+      label,
+      horizon: end,
+      ...trainingWindow({ today, start, end, workouts: windowWorkouts ?? [] }),
+    };
   }
   return {
     ...shell,
@@ -128,5 +178,6 @@ export async function loadHome() {
     conflicts: conflicts.data ?? [],
     loads: loads.data ?? [],
     plan: recommendation.data,
+    progress,
   };
 }

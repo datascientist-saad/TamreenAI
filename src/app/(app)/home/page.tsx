@@ -51,6 +51,7 @@ export default async function HomePage() {
           {data.profile?.is_demo ? <DemoBanner /> : null}
         </div>
       </header>
+      {data.progress ? <ProgressTrack progress={data.progress} /> : null}
       <div className="grid gap-7 lg:hidden">
         {data.readiness?.blocked_for_safety ? <SafetyBanner /> : null}
         <WeekStrip today={data.today} workouts={data.weekWorkouts} compact />
@@ -154,6 +155,48 @@ export default async function HomePage() {
         </article>
       ) : null}
     </main>
+  );
+}
+
+function ProgressTrack({
+  progress,
+}: {
+  progress: { kind: "event" | "block"; label: string; daysLeft: number; done: number; remaining: number };
+}) {
+  const total = progress.done + progress.remaining;
+  const width = total === 0 ? 0 : Math.round((progress.done / total) * 100);
+  return (
+    <section className="grid gap-2 border-t border-line pt-4 lg:app-card lg:border-t-0 lg:p-5" aria-label="Training progress">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{progress.kind === "event" ? "Until the event" : "Current block"}</p>
+      <h2 className="text-xl font-bold">{progress.label}</h2>
+      <div
+        className="h-2 overflow-hidden rounded-full bg-line"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={progress.done}
+        aria-label="Training done"
+      >
+        <div className="h-full rounded-full bg-[var(--score)]" style={{ width: `${width}%` }} />
+      </div>
+      <dl className="grid grid-cols-3 text-center">
+        <div>
+          <dd className="metric text-2xl font-bold">{progress.daysLeft}</dd>
+          <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Days left</dt>
+        </div>
+        <div>
+          <dd className="metric text-2xl font-bold">{progress.done}</dd>
+          <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Done</dt>
+        </div>
+        <div>
+          <dd className="metric text-2xl font-bold">{progress.remaining}</dd>
+          <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Still needed</dt>
+        </div>
+      </dl>
+      <p className="text-sm text-muted">
+        {total === 0 ? "No sessions are scheduled in this window." : "Still needed counts sessions still on the calendar. It is not an estimated fitness gap."}
+      </p>
+    </section>
   );
 }
 

@@ -3,253 +3,213 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveOnboarding } from "@/server/actions";
+import { goals, sports } from "./schema";
 
-const sports = [
-  ["strength", "Strength"],
-  ["bodybuilding", "Bodybuilding"],
-  ["running", "Running"],
-  ["cycling", "Cycling"],
-  ["swimming", "Swimming"],
-  ["triathlon", "Triathlon"],
-] as const;
+const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const goals = [
-  ["build_muscle", "Build muscle"],
-  ["lose_fat", "Lose fat"],
-  ["recomposition", "Recomposition"],
-  ["increase_strength", "Increase strength"],
-  ["improve_5k", "Improve 5K"],
-  ["improve_10k", "Improve 10K"],
-  ["half_marathon", "Half marathon"],
-  ["marathon", "Marathon"],
-  ["sprint_triathlon", "Sprint triathlon"],
-  ["olympic_triathlon", "Olympic triathlon"],
-  ["ironman_70_3", "Ironman 70.3"],
-  ["ironman", "Ironman"],
-  ["improve_cycling", "Improve cycling"],
-  ["improve_swimming", "Improve swimming"],
-  ["general_hybrid", "General hybrid fitness"],
-  ["custom", "Custom"],
-] as const;
-
-const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-export function OnboardingWizard() {
+export function OnboardingWizard({ initialName }: { initialName: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [sportsPicked, setSports] = useState<string[]>(["running", "strength"]);
-  const [goalPicked, setGoals] = useState<string[]>(["general_hybrid"]);
-  const [primary, setPrimary] = useState("general_hybrid");
+  const [name, setName] = useState(initialName);
+  const [picked, setPicked] = useState<string[]>(["running", "strength"]);
+  const [goal, setGoal] = useState("general_hybrid");
+  const [eventName, setEventName] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [experience, setExperience] = useState<"beginner" | "intermediate" | "advanced" | "elite">("intermediate");
   const [preferred, setPreferred] = useState<number[]>([1, 2, 3, 4, 5, 6]);
-  const [training, setTraining] = useState(false);
+  const [minutes, setMinutes] = useState(60);
+  const [gym, setGym] = useState(true);
+  const [pool, setPool] = useState(false);
+  const [bike, setBike] = useState(false);
+  const [equipmentTouched, setEquipmentTouched] = useState(false);
 
-  function toggle(list: string[], value: string, set: (next: string[]) => void) {
-    set(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+  function toggleSport(slug: string) {
+    setPicked((current) => (current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug]));
   }
 
-  return (
-    <form className="mx-auto grid max-w-xl gap-4 px-4 py-6" onSubmit={async (event) => {
-      event.preventDefault();
-      if (step < 6) {
-        setStep(step + 1);
+  function next() {
+    setError("");
+    if (step === 0) {
+      if (!name.trim()) {
+        setError("Add your name.");
         return;
       }
-      setPending(true);
-      setError("");
-      const form = new FormData(event.currentTarget);
-      const num = (name: string) => {
-        const value = String(form.get(name) ?? "");
-        return value === "" ? null : Number(value);
-      };
-      try {
-        await saveOnboarding({
-          fullName: String(form.get("fullName") ?? ""),
-          dateOfBirth: String(form.get("dob") ?? ""),
-          sex: String(form.get("sex") ?? "prefer_not_to_say") as "female" | "male" | "other" | "prefer_not_to_say",
-          heightCm: Number(form.get("height")),
-          weightKg: Number(form.get("weight")),
-          bodyFat: num("bodyFat"),
-          experience: String(form.get("experience") ?? "intermediate") as "beginner" | "intermediate" | "advanced" | "elite",
-          sports: sportsPicked as Array<"strength" | "bodybuilding" | "running" | "cycling" | "swimming" | "triathlon">,
-          primaryGoal: primary,
-          goals: goalPicked.includes(primary) ? goalPicked : [primary, ...goalPicked],
-          customGoal: String(form.get("customGoal") ?? ""),
-          preferredDays: preferred,
-          minutesPerDay: Number(form.get("minutes") ?? 60),
-          gymAccess: form.get("gym") === "on",
-          poolAccess: form.get("pool") === "on",
-          bikeAccess: form.get("bike") === "on",
-          injuries: String(form.get("injuryArea") ?? "").trim() ? [{
-            status: "current",
-            bodyArea: String(form.get("injuryArea")),
-            description: String(form.get("injuryNote") ?? ""),
-            avoid: String(form.get("avoid") ?? "").split(",").map((item) => item.trim()).filter(Boolean),
-            severity: String(form.get("severity") ?? "mild") as "mild" | "moderate" | "severe",
-            redFlag: form.get("redFlag") === "on",
-          }] : [],
-          event: training ? {
-            name: String(form.get("eventName") ?? ""),
-            eventType: String(form.get("eventType") ?? "race"),
-            date: String(form.get("eventDate") ?? ""),
-            distanceM: num("distance"),
-            goalTimeSeconds: num("goalTime"),
-          } : null,
-          benchmarks: {
-            fiveKSeconds: num("fiveK"),
-            tenKSeconds: num("tenK"),
-            halfSeconds: num("half"),
-            marathonSeconds: num("marathon"),
-            weeklyRunKm: num("runKm"),
-            ftpWatts: num("ftp"),
-            weeklyBikeKm: num("bikeKm"),
-            swim100Seconds: num("swim100"),
-            swim400Seconds: num("swim400"),
-            weeklySwimM: num("swimM"),
-            squatKg: num("squat"),
-            benchKg: num("bench"),
-            deadliftKg: num("deadlift"),
-          },
-        });
-        router.push("/home");
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Onboarding could not be saved.");
-        setPending(false);
+      if (!picked.length) {
+        setError("Choose at least one sport.");
+        return;
       }
-    }}>
-      <p className="eyebrow">Step {step + 1} of 7</p>
-      <h1 className="text-3xl font-extrabold">Build the athlete model first.</h1>
+      if ((eventName.trim() && !eventDate) || (!eventName.trim() && eventDate)) {
+        setError("Add both the event name and the date, or leave both blank.");
+        return;
+      }
+      if (!equipmentTouched) {
+        const swim = picked.includes("swimming") || picked.includes("triathlon");
+        const cycle = picked.includes("cycling") || picked.includes("triathlon");
+        setPool(swim);
+        setBike(cycle);
+      }
+      setStep(1);
+      return;
+    }
+    if (!preferred.length) {
+      setError("Choose at least one training day.");
+      return;
+    }
+    if (minutes < 15 || minutes > 360) {
+      setError("Minutes per day need to be between 15 and 360.");
+      return;
+    }
+    setStep(2);
+  }
+
+  const goalLabel = goals.find(([slug]) => slug === goal)?.[1] ?? goal;
+  const sportLabels = sports.filter(([slug]) => picked.includes(slug)).map(([, label]) => label);
+
+  return (
+    <div className="mx-auto grid w-full max-w-lg gap-5 px-4 py-4">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Step {step + 1} of 3</p>
+        <h1 className="mt-1 text-3xl font-extrabold tracking-tight">
+          {step === 0 ? "What are you training for?" : step === 1 ? "When can you train?" : "Generate the plan"}
+        </h1>
+      </div>
       {step === 0 ? (
-        <div className="grid gap-3">
-          <label>Name<input name="fullName" required /></label>
-          <label>Date of birth<input name="dob" type="date" required /></label>
-          <label>Sex, used only for strength reference bands
-            <select name="sex" defaultValue="prefer_not_to_say">
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-              <option value="other">Other</option>
-              <option value="prefer_not_to_say">Prefer not to say</option>
-            </select>
+        <div className="grid gap-4">
+          <label>Name
+            <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required />
           </label>
-          <label>Height (cm)<input name="height" type="number" min={50} max={260} required defaultValue={175} /></label>
-          <label>Weight (kg)<input name="weight" type="number" min={20} max={400} step="0.1" required defaultValue={75} /></label>
-          <label>Body fat % optional<input name="bodyFat" type="number" min={2} max={70} step="0.1" /></label>
+          <fieldset className="grid grid-cols-2 gap-2">
+            <legend className="mb-2 font-bold">Sports</legend>
+            {sports.map(([slug, label]) => (
+              <button key={slug} type="button" className={`btn min-h-11 ${picked.includes(slug) ? "btn-primary" : "btn-ghost"}`} onClick={() => toggleSport(slug)} aria-pressed={picked.includes(slug)}>{label}</button>
+            ))}
+          </fieldset>
+          <fieldset className="grid gap-2">
+            <legend className="font-bold">Primary goal</legend>
+            {goals.map(([slug, label]) => (
+              <label key={slug} className="flex min-h-11 items-center justify-between rounded-2xl border border-line px-3 py-2 font-medium">
+                <span>{label}</span>
+                <input type="radio" name="goal" checked={goal === slug} onChange={() => setGoal(slug)} />
+              </label>
+            ))}
+          </fieldset>
+          <label>Event name, optional
+            <input value={eventName} onChange={(event) => setEventName(event.target.value)} placeholder="Leave blank if you are not racing" />
+          </label>
+          <label>Event date
+            <input value={eventDate} onChange={(event) => setEventDate(event.target.value)} type="date" />
+          </label>
+        </div>
+      ) : null}
+      {step === 1 ? (
+        <div className="grid gap-4">
           <label>Experience
-            <select name="experience" defaultValue="intermediate">
+            <select value={experience} onChange={(event) => setExperience(event.target.value as typeof experience)}>
               <option value="beginner">Beginner</option>
               <option value="intermediate">Intermediate</option>
               <option value="advanced">Advanced</option>
               <option value="elite">Elite</option>
             </select>
           </label>
+          <div>
+            <p className="mb-2 font-bold">Days</p>
+            <div className="flex flex-wrap gap-2">
+              {dayLabels.map((label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`btn min-h-11 min-w-14 ${preferred.includes(index) ? "btn-primary" : "btn-ghost"}`}
+                  onClick={() => setPreferred((current) => (current.includes(index) ? current.filter((day) => day !== index) : [...current, index].sort()))}
+                  aria-pressed={preferred.includes(index)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label>Minutes each day
+            <input value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} type="number" min={15} max={360} />
+          </label>
+          <label className="flex min-h-11 items-center gap-3 font-medium">
+            <input type="checkbox" checked={gym} onChange={(event) => { setEquipmentTouched(true); setGym(event.target.checked); }} /> Gym
+          </label>
+          <label className="flex min-h-11 items-center gap-3 font-medium">
+            <input type="checkbox" checked={bike} onChange={(event) => { setEquipmentTouched(true); setBike(event.target.checked); }} /> Bike
+          </label>
+          <label className="flex min-h-11 items-center gap-3 font-medium">
+            <input type="checkbox" checked={pool} onChange={(event) => { setEquipmentTouched(true); setPool(event.target.checked); }} /> Pool
+          </label>
         </div>
-      ) : null}
-      {step === 1 ? (
-        <fieldset className="grid grid-cols-2 gap-2">
-          <legend className="mb-2 font-bold">Select every sport you train</legend>
-          {sports.map(([slug, label]) => (
-            <button key={slug} type="button" className={`btn ${sportsPicked.includes(slug) ? "btn-primary" : "btn-ghost"}`} onClick={() => toggle(sportsPicked, slug, setSports)}>{label}</button>
-          ))}
-        </fieldset>
       ) : null}
       {step === 2 ? (
-        <div className="grid gap-2">
-          <p className="font-bold">Choose goals. One is primary.</p>
-          {goals.map(([slug, label]) => (
-            <label key={slug} className="flex items-center justify-between rounded-xl border border-line px-3 py-2">
-              <span>{label}</span>
-              <span className="flex gap-3 text-sm">
-                <input type="checkbox" checked={goalPicked.includes(slug)} onChange={() => toggle(goalPicked, slug, setGoals)} />
-                <input type="radio" name="primary" checked={primary === slug} onChange={() => setPrimary(slug)} />
-              </span>
-            </label>
-          ))}
-          <label>Custom wording<input name="customGoal" /></label>
-        </div>
-      ) : null}
-      {step === 3 ? (
-        <div className="grid gap-3">
-          <p className="text-sm text-muted">Leave a field blank if you do not know it. Blank means no score, not a guessed score.</p>
-          {(sportsPicked.includes("running") || sportsPicked.includes("triathlon")) ? (
-            <>
-              <label>5K PB seconds<input name="fiveK" type="number" /></label>
-              <label>10K PB seconds<input name="tenK" type="number" /></label>
-              <label>Half marathon seconds<input name="half" type="number" /></label>
-              <label>Marathon seconds<input name="marathon" type="number" /></label>
-              <label>Weekly run km<input name="runKm" type="number" step="0.1" /></label>
-            </>
-          ) : null}
-          {(sportsPicked.includes("cycling") || sportsPicked.includes("triathlon")) ? (
-            <>
-              <label>FTP watts<input name="ftp" type="number" /></label>
-              <label>Weekly bike km<input name="bikeKm" type="number" step="0.1" /></label>
-            </>
-          ) : null}
-          {(sportsPicked.includes("swimming") || sportsPicked.includes("triathlon")) ? (
-            <>
-              <label>100m pace seconds<input name="swim100" type="number" /></label>
-              <label>400m pace seconds<input name="swim400" type="number" /></label>
-              <label>Weekly swim metres<input name="swimM" type="number" /></label>
-            </>
-          ) : null}
-          {(sportsPicked.includes("strength") || sportsPicked.includes("bodybuilding")) ? (
-            <>
-              <label>Squat kg<input name="squat" type="number" step="0.5" /></label>
-              <label>Bench kg<input name="bench" type="number" step="0.5" /></label>
-              <label>Deadlift kg<input name="deadlift" type="number" step="0.5" /></label>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {step === 4 ? (
-        <div className="grid gap-3">
-          <p className="font-bold">Days you can train</p>
-          <div className="flex flex-wrap gap-2">
-            {days.map((label, index) => (
-              <button key={label} type="button" className={`btn ${preferred.includes(index) ? "btn-primary" : "btn-ghost"}`} onClick={() => setPreferred(preferred.includes(index) ? preferred.filter((day) => day !== index) : [...preferred, index])}>{label}</button>
-            ))}
-          </div>
-          <label>Minutes available each day<input name="minutes" type="number" min={15} max={360} defaultValue={60} /></label>
-          <label className="flex items-center gap-2"><input name="gym" type="checkbox" defaultChecked /> Gym</label>
-          <label className="flex items-center gap-2"><input name="pool" type="checkbox" /> Pool</label>
-          <label className="flex items-center gap-2"><input name="bike" type="checkbox" /> Bike</label>
-        </div>
-      ) : null}
-      {step === 5 ? (
-        <div className="grid gap-3">
-          <label>Current injury area<input name="injuryArea" placeholder="Leave blank if none" /></label>
-          <label>What should Tamreen avoid?<input name="avoid" placeholder="squat, overhead" /></label>
-          <label>Notes<textarea name="injuryNote" /></label>
-          <label>Severity
-            <select name="severity" defaultValue="mild">
-              <option value="mild">Mild</option>
-              <option value="moderate">Moderate</option>
-              <option value="severe">Severe</option>
-            </select>
-          </label>
-          <label className="flex items-center gap-2"><input name="redFlag" type="checkbox" /> Severe pain, chest pain, fainting, or another reason to stop training</label>
-        </div>
-      ) : null}
-      {step === 6 ? (
-        <div className="grid gap-3">
-          <label className="flex items-center gap-2"><input type="checkbox" checked={training} onChange={(event) => setTraining(event.target.checked)} /> Are you training for something?</label>
-          {training ? (
-            <>
-              <label>Event<input name="eventName" required /></label>
-              <label>Type<input name="eventType" defaultValue="triathlon" /></label>
-              <label>Date<input name="eventDate" type="date" required /></label>
-              <label>Distance metres<input name="distance" type="number" /></label>
-              <label>Goal time seconds<input name="goalTime" type="number" /></label>
-            </>
-          ) : null}
+        <div className="grid gap-3 text-sm">
+          <dl className="divide-y divide-line border-y border-line">
+            <Row label="Name" value={name.trim()} />
+            <Row label="Sports" value={sportLabels.join(", ")} />
+            <Row label="Goal" value={goalLabel} />
+            <Row label="Event" value={eventName.trim() ? `${eventName.trim()} · ${eventDate}` : "None. Progress uses the current block."} />
+            <Row label="Schedule" value={`${preferred.length} days · ${minutes} min`} />
+            <Row label="Equipment" value={[gym ? "Gym" : null, bike ? "Bike" : null, pool ? "Pool" : null].filter(Boolean).join(", ") || "None selected"} />
+          </dl>
+          <p className="text-muted">Tamreen rules place the sessions. When a server key is configured, the coaching model rewrites the explanation only. Benchmarks and injuries can be added later. Chest pain, fainting, severe pain, or breathlessness at rest are reasons to stop and get care.</p>
         </div>
       ) : null}
       {error ? <p className="text-sm text-live">{error}</p> : null}
       <div className="flex gap-2">
-        {step > 0 ? <button className="btn btn-ghost" type="button" onClick={() => setStep(step - 1)}>Back</button> : null}
-        <button className="btn btn-primary" type="submit" disabled={pending}>{step === 6 ? "Save and build plan" : "Continue"}</button>
+        {step > 0 ? <button className="btn btn-ghost min-h-11" type="button" onClick={() => { setError(""); setStep(step - 1); }}>Back</button> : null}
+        {step < 2 ? (
+          <button className="btn btn-primary min-h-11 flex-1" type="button" onClick={next}>Continue</button>
+        ) : (
+          <button
+            className="btn btn-primary min-h-11 flex-1"
+            type="button"
+            disabled={pending}
+            onClick={async () => {
+              setPending(true);
+              setError("");
+              try {
+                await saveOnboarding({
+                  fullName: name.trim(),
+                  experience,
+                  sports: picked as Array<"strength" | "bodybuilding" | "running" | "cycling" | "swimming" | "triathlon">,
+                  primaryGoal: goal,
+                  goals: [goal],
+                  preferredDays: preferred,
+                  minutesPerDay: minutes,
+                  gymAccess: gym,
+                  poolAccess: pool,
+                  bikeAccess: bike,
+                  event: eventName.trim() && eventDate ? {
+                    name: eventName.trim(),
+                    eventType: goal,
+                    date: eventDate,
+                    distanceM: null,
+                    goalTimeSeconds: null,
+                  } : null,
+                });
+                router.push("/home");
+                router.refresh();
+              } catch (caught) {
+                setError(caught instanceof Error ? caught.message : "The plan could not be saved.");
+                setPending(false);
+              }
+            }}
+          >
+            {pending ? "Building the plan" : "Generate plan"}
+          </button>
+        )}
       </div>
-    </form>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[7rem_1fr] gap-3 py-3">
+      <dt className="text-muted">{label}</dt>
+      <dd className="font-semibold">{value}</dd>
+    </div>
   );
 }
