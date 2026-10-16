@@ -81,16 +81,17 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
         const name = String(form.get("name") ?? "");
         const supabase = createClient();
         if (mode === "signup") {
-          const { error: authError } = await supabase.auth.signUp({
+          const { data: signed, error: authError } = await supabase.auth.signUp({
             email,
             password,
             options: {
-              emailRedirectTo: `${window.location.origin}/auth/callback`,
+              emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
               data: { full_name: name },
             },
           });
           if (authError) setError(authError.message);
-          else setNotice("Check your email to verify the account, then sign in.");
+          else if (signed.session) router.push("/onboarding");
+          else setNotice("Check your email to verify the account. The link opens onboarding.");
           return;
         }
         const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
@@ -110,11 +111,12 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
           const supabase = createClient();
           const { error: authError } = await supabase.auth.signInWithOAuth({
             provider: "google",
-            options: { redirectTo: `${window.location.origin}/auth/callback` },
+            options: { redirectTo: `${window.location.origin}/auth/callback?next=/home` },
           });
           if (authError) setError(authError.message);
         }}>Continue with Google</button>
       ) : null}
+      {googleEnabled ? <p className="mt-3 text-sm text-muted">Use the same email as a password account. Supabase keeps one athlete when automatic linking is enabled for that address.</p> : null}
       <p className="mt-4 text-sm text-muted">
         {mode === "login" ? <Link href="/forgot-password">Forgot password</Link> : null}
         {" "}

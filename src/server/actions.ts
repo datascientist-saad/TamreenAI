@@ -26,7 +26,9 @@ import {
   type PlannedSession,
   type Sport,
 } from "@/services/training/engine";
-import { todayInTimeZone } from "@/lib/utils";
+import { todayInTimeZone, shiftIsoDate } from "@/lib/utils";
+import { onboardingSchema } from "@/features/onboarding/schema";
+import { narratePlan, narrateReview } from "@/services/ai/narrate";
 import { MIN_POSE_FRAMES } from "@/services/live/geometry";
 import { POSE_MODEL_NAME, resolvePlanExercise, type ModelFormPayload } from "@/services/live/pose";
 import { requireUser } from "./guard";
@@ -44,57 +46,6 @@ async function limit(action: string, maxCalls: number, windowSeconds: number) {
   return { supabase, user };
 }
 
-const sportList = ["strength", "bodybuilding", "running", "cycling", "swimming", "triathlon"] as const;
-
-const onboardingSchema = z.object({
-  fullName: z.string().trim().min(1).max(80),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  sex: z.enum(["female", "male", "other", "prefer_not_to_say"]),
-  heightCm: z.number().min(50).max(260),
-  weightKg: z.number().min(20).max(400),
-  bodyFat: z.number().min(2).max(70).nullable(),
-  experience: z.enum(["beginner", "intermediate", "advanced", "elite"]),
-  sports: z.array(z.enum(sportList)).min(1),
-  primaryGoal: z.string().min(1),
-  goals: z.array(z.string()).min(1),
-  customGoal: z.string().max(160).optional(),
-  preferredDays: z.array(z.number().int().min(0).max(6)).min(1),
-  minutesPerDay: z.number().int().min(15).max(360),
-  gymAccess: z.boolean(),
-  poolAccess: z.boolean(),
-  bikeAccess: z.boolean(),
-  injuries: z.array(z.object({
-    status: z.enum(["current", "previous"]),
-    bodyArea: z.string().min(1).max(80),
-    description: z.string().max(400),
-    avoid: z.array(z.string()).max(12),
-    severity: z.enum(["mild", "moderate", "severe"]),
-    redFlag: z.boolean(),
-  })).max(12),
-  event: z.object({
-    name: z.string().min(1).max(120),
-    eventType: z.string().min(1).max(80),
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    distanceM: z.number().positive().nullable(),
-    goalTimeSeconds: z.number().int().positive().nullable(),
-  }).nullable(),
-  benchmarks: z.object({
-    fiveKSeconds: z.number().int().positive().nullable(),
-    tenKSeconds: z.number().int().positive().nullable(),
-    halfSeconds: z.number().int().positive().nullable(),
-    marathonSeconds: z.number().int().positive().nullable(),
-    weeklyRunKm: z.number().nonnegative().nullable(),
-    ftpWatts: z.number().int().positive().nullable(),
-    weeklyBikeKm: z.number().nonnegative().nullable(),
-    swim100Seconds: z.number().int().positive().nullable(),
-    swim400Seconds: z.number().int().positive().nullable(),
-    weeklySwimM: z.number().nonnegative().nullable(),
-    squatKg: z.number().positive().nullable(),
-    benchKg: z.number().positive().nullable(),
-    deadliftKg: z.number().positive().nullable(),
-  }),
-});
-
 export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   const parsed = onboardingSchema.parse(input);
   const { supabase, user } = await limit("onboarding", 12, 3600);
@@ -103,18 +54,16 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   const sportId = new Map((sports ?? []).map((sport) => [sport.slug, sport.id]));
   const goalId = new Map((goals ?? []).map((goal) => [goal.slug, goal.id]));
 
-  const { error: profileError } = await supabase.from("profiles").update({
+  const profileUpdate: Record<string, unknown> = {
     full_name: parsed.fullName,
-    date_of_birth: parsed.dateOfBirth,
-    sex: parsed.sex,
     onboarding_completed: true,
-  }).eq("id", user.id);
+  };
+  if (parsed.dateOfBirth) profileUpdate.date_of_birth = parsed.dateOfBirth;
+  if (parsed.sex) profileUpdate.sex = parsed.sex;
+  const { error: profileError } = await supabase.from("profiles").update(profileUpdate).eq("id", user.id);
   if (profileError) throw new Error(profileError.message);
 
-  const { error: athleteError } = await supabase.from("athlete_profiles").update({
-    height_cm: parsed.heightCm,
-    weight_kg: parsed.weightKg,
-    body_fat_pct: parsed.bodyFat,
+  const athleteUpdate: Record<string, unknown> = {
     experience_level: parsed.experience,
     days_available: parsed.preferredDays.length,
     minutes_per_day: parsed.minutesPerDay,
@@ -122,20 +71,28 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
     gym_access: parsed.gymAccess,
     pool_access: parsed.poolAccess,
     bike_access: parsed.bikeAccess,
-    reported_5k_seconds: parsed.benchmarks.fiveKSeconds,
-    reported_10k_seconds: parsed.benchmarks.tenKSeconds,
-    reported_half_seconds: parsed.benchmarks.halfSeconds,
-    reported_marathon_seconds: parsed.benchmarks.marathonSeconds,
-    weekly_run_km: parsed.benchmarks.weeklyRunKm,
-    ftp_watts: parsed.benchmarks.ftpWatts,
-    weekly_bike_km: parsed.benchmarks.weeklyBikeKm,
-    swim_100m_seconds: parsed.benchmarks.swim100Seconds,
-    swim_400m_seconds: parsed.benchmarks.swim400Seconds,
-    weekly_swim_m: parsed.benchmarks.weeklySwimM,
-    squat_kg: parsed.benchmarks.squatKg,
-    bench_kg: parsed.benchmarks.benchKg,
-    deadlift_kg: parsed.benchmarks.deadliftKg,
-  }).eq("user_id", user.id);
+  };
+  if (parsed.heightCm != null) athleteUpdate.height_cm = parsed.heightCm;
+  if (parsed.weightKg != null) athleteUpdate.weight_kg = parsed.weightKg;
+  if (parsed.bodyFat != null) athleteUpdate.body_fat_pct = parsed.bodyFat;
+  if (parsed.benchmarks) {
+    Object.assign(athleteUpdate, {
+      reported_5k_seconds: parsed.benchmarks.fiveKSeconds,
+      reported_10k_seconds: parsed.benchmarks.tenKSeconds,
+      reported_half_seconds: parsed.benchmarks.halfSeconds,
+      reported_marathon_seconds: parsed.benchmarks.marathonSeconds,
+      weekly_run_km: parsed.benchmarks.weeklyRunKm,
+      ftp_watts: parsed.benchmarks.ftpWatts,
+      weekly_bike_km: parsed.benchmarks.weeklyBikeKm,
+      swim_100m_seconds: parsed.benchmarks.swim100Seconds,
+      swim_400m_seconds: parsed.benchmarks.swim400Seconds,
+      weekly_swim_m: parsed.benchmarks.weeklySwimM,
+      squat_kg: parsed.benchmarks.squatKg,
+      bench_kg: parsed.benchmarks.benchKg,
+      deadlift_kg: parsed.benchmarks.deadliftKg,
+    });
+  }
+  const { error: athleteError } = await supabase.from("athlete_profiles").update(athleteUpdate).eq("user_id", user.id);
   if (athleteError) throw new Error(athleteError.message);
 
   await supabase.from("athlete_sports").delete().eq("user_id", user.id);
@@ -159,8 +116,10 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
     if (error) throw new Error(error.message);
   }
 
-  await supabase.from("injuries").delete().eq("user_id", user.id);
-  if (parsed.injuries.length) {
+  if (parsed.injuries) {
+    await supabase.from("injuries").delete().eq("user_id", user.id);
+  }
+  if (parsed.injuries?.length) {
     await supabase.from("injuries").insert(parsed.injuries.map((injury) => ({
       user_id: user.id,
       status: injury.status,
@@ -197,7 +156,7 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
     supabase.from("athlete_sports").select("sports(slug)").eq("user_id", userId),
     supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", userId),
     supabase.from("injuries").select("body_area, exercises_to_avoid, red_flag, status").eq("user_id", userId),
-    supabase.from("events").select("name, starts_on").eq("owner_user_id", userId).is("deleted_at", null).order("starts_on").limit(1).maybeSingle(),
+    supabase.from("events").select("name, starts_on").eq("owner_user_id", userId).is("deleted_at", null).order("starts_on").limit(12),
   ]);
   const sportSlugs = (sports ?? []).flatMap((row) => {
     const joined = row.sports as { slug?: string } | { slug?: string }[] | null;
@@ -212,6 +171,7 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
   const primary = goalRows.find((goal) => goal.primary)?.slug ?? goalRows[0]?.slug ?? "general_hybrid";
   const current = (injuries ?? []).filter((injury) => injury.status === "current");
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+  const upcoming = (event ?? []).find((row) => row.starts_on >= today) ?? (event ?? []).at(-1) ?? null;
   return {
     startDate: today,
     sports: sportSlugs,
@@ -223,8 +183,8 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
     gymAccess: athlete?.gym_access ?? true,
     poolAccess: athlete?.pool_access ?? false,
     bikeAccess: athlete?.bike_access ?? false,
-    eventDate: event?.starts_on ?? null,
-    eventName: event?.name ?? null,
+    eventDate: upcoming?.starts_on ?? null,
+    eventName: upcoming?.name ?? null,
     avoidExercises: current.flatMap((injury) => injury.exercises_to_avoid ?? []),
     currentInjuryAreas: current.map((injury) => injury.body_area),
     redFlag: current.some((injury) => injury.red_flag),
@@ -257,7 +217,7 @@ export async function generatePlan() {
     start_date: plan.startDate,
     end_date: plan.endDate,
     primary_goal_slug: ctx.primaryGoal,
-    inputs: { sports: ctx.sports, minutes: ctx.minutesPerDay, days: ctx.preferredDays },
+    inputs: { sports: ctx.sports, minutes: ctx.minutesPerDay, days: ctx.preferredDays, narration: "rules" },
     explanation: plan.explanation,
   }).select("id").single();
   if (error || !created) throw new Error(error?.message ?? "Plan was not saved.");
@@ -315,6 +275,46 @@ export async function generatePlan() {
   });
   if (exerciseRows.length) await supabase.from("workout_exercises").insert(exerciseRows);
 
+  let explanation = plan.explanation;
+  const soon = shiftIsoDate(today, 21);
+  const briefs = plan.sessions.flatMap((session, index) => (
+    session.date <= soon ? [{
+      index,
+      date: session.date,
+      sport: session.sport,
+      title: session.title,
+      objective: session.objective,
+      durationMin: session.durationMin,
+      intensity: session.intensity,
+      why: session.why,
+    }] : []
+  ));
+  try {
+    const narration = await narratePlan({
+      engineExplanation: plan.explanation,
+      sports: ctx.sports,
+      goal: ctx.primaryGoal,
+      eventName: ctx.eventName,
+      eventDate: ctx.eventDate,
+      redFlag: ctx.redFlag,
+      sessions: briefs,
+    });
+    explanation = narration.explanation;
+    if (narration.source === "model") {
+      await supabase.from("training_plans").update({
+        explanation: narration.explanation,
+        inputs: { sports: ctx.sports, minutes: ctx.minutesPerDay, days: ctx.preferredDays, narration: "model" },
+      }).eq("id", created.id).eq("user_id", user.id);
+      for (const [index, why] of narration.whyByIndex) {
+        const workoutId = byKey.get(index);
+        if (!workoutId) continue;
+        await supabase.from("workouts").update({ why_text: why }).eq("id", workoutId).eq("user_id", user.id);
+      }
+    }
+  } catch {
+    explanation = plan.explanation;
+  }
+
   const conflicts = findConflicts(plan.sessions);
   if (conflicts.length) {
     await supabase.from("training_conflicts").insert(conflicts.slice(0, 12).map((conflict) => ({
@@ -331,12 +331,64 @@ export async function generatePlan() {
     user_id: user.id,
     kind: "plan",
     title: "Training plan ready",
-    body: plan.explanation.slice(0, 180),
+    body: explanation.slice(0, 180),
     href: "/plan",
   });
   revalidatePath("/home");
   revalidatePath("/plan");
   return { ok: true, recommendedLoad: recommendedWeeklyLoad(ctx) };
+}
+
+export async function reviewWorkout(workoutId: string) {
+  const { supabase, user } = await limit("review_workout", 20, 3600);
+  const { data: workout } = await supabase
+    .from("workouts")
+    .select("id, title, objective, sport, intensity, duration_min, why_text, structure, status")
+    .eq("id", workoutId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!workout) throw new Error("That session was not found.");
+  const { data: log } = await supabase
+    .from("completed_workouts")
+    .select("id, rpe, notes")
+    .eq("user_id", user.id)
+    .eq("workout_id", workoutId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!log && workout.status !== "completed") throw new Error("Log the session before asking for a review.");
+  const { data: sets } = log
+    ? await supabase.from("completed_sets").select("exercise_name, reps, weight_kg, rpe, is_warmup").eq("completed_workout_id", log.id)
+    : { data: [] };
+  const { data: injuries } = await supabase.from("injuries").select("red_flag").eq("user_id", user.id).eq("status", "current");
+  const review = await narrateReview({
+    title: workout.title,
+    objective: workout.objective,
+    sport: workout.sport,
+    intensity: workout.intensity,
+    durationMin: workout.duration_min,
+    why: workout.why_text,
+    rpe: log?.rpe == null ? null : Number(log.rpe),
+    notes: log?.notes ?? "",
+    redFlag: (injuries ?? []).some((injury) => injury.red_flag),
+    loggedSets: (sets ?? []).filter((set) => !set.is_warmup).map((set) => ({
+      name: set.exercise_name,
+      reps: set.reps,
+      weightKg: set.weight_kg == null ? null : Number(set.weight_kg),
+      rpe: set.rpe == null ? null : Number(set.rpe),
+    })),
+  });
+  const structure = workout.structure && typeof workout.structure === "object" && !Array.isArray(workout.structure)
+    ? workout.structure as Record<string, unknown>
+    : {};
+  await supabase.from("workouts").update({
+    structure: {
+      ...structure,
+      coachingReview: { text: review.text, source: review.source, at: new Date().toISOString() },
+    },
+  }).eq("id", workoutId).eq("user_id", user.id);
+  revalidatePath(`/train/${workoutId}`);
+  return review;
 }
 
 export async function respondToRecommendation(id: string, accept: boolean) {

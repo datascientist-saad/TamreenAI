@@ -11,7 +11,8 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
   const { supabase, user } = await requireUser();
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
-  const { data: plan } = await supabase.from("training_plans").select("id, name, explanation, start_date, end_date").eq("user_id", user.id).eq("status", "active").is("deleted_at", null).maybeSingle();
+  const { data: plan } = await supabase.from("training_plans").select("id, name, explanation, start_date, end_date, inputs").eq("user_id", user.id).eq("status", "active").is("deleted_at", null).maybeSingle();
+  const narration = plan?.inputs && typeof plan.inputs === "object" && !Array.isArray(plan.inputs) ? (plan.inputs as { narration?: string }).narration : null;
   const { data: blocks } = plan
     ? await supabase.from("training_blocks").select("id, phase, name, start_date, end_date, focus").eq("plan_id", plan.id).order("sort_order")
     : { data: [] };
@@ -36,6 +37,8 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
           <button className="btn btn-gold min-h-10 shrink-0" type="submit">Rebuild plan</button>
         </form>
       </div>
+      {narration === "model" ? <p className="text-sm text-muted">Coaching text. Tamreen&apos;s rules placed the sessions. The model wrote this explanation and did not move the calendar.</p> : null}
+      {narration === "rules" ? <p className="text-sm text-muted">Tamreen&apos;s rules placed these sessions and wrote the explanation. The coaching model was not used.</p> : null}
       {view === "block" ? (
         <ul className="grid gap-2">
           {(blocks ?? []).map((block) => (

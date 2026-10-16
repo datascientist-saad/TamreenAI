@@ -21,7 +21,7 @@ export interface WearableProvider {
   normalize(payload: unknown): NormalizedActivity[];
 }
 
-function disconnected(id: WearableProvider["id"], displayName: string): WearableProvider {
+function disconnected(id: WearableProvider["id"], displayName: string, reason?: string): WearableProvider {
   return {
     id,
     displayName,
@@ -29,7 +29,7 @@ function disconnected(id: WearableProvider["id"], displayName: string): Wearable
     async connect() {
       return {
         ok: false,
-        reason: `${displayName} is not connected. Tamreen will not show imported workouts until a real authorization exists.`,
+        reason: reason ?? `${displayName} is not connected. Tamreen will not show imported workouts until a real authorization exists.`,
       };
     },
     normalize() {
@@ -42,7 +42,7 @@ export const wearableProviders: WearableProvider[] = [
   disconnected("garmin", "Garmin"),
   disconnected("apple_health", "Apple Health"),
   disconnected("health_connect", "Health Connect"),
-  disconnected("whoop", "WHOOP"),
+  disconnected("whoop", "WHOOP", "WHOOP waits for a developer client id and secret. Tamreen will not show a connection or imported workouts until those credentials exist."),
   disconnected("strava", "Strava"),
   disconnected("oura", "Oura"),
 ];

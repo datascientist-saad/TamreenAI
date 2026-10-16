@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/page";
 import { StrengthLogger, type LoggerExercise } from "@/features/strength/logger";
+import { WorkoutReview } from "@/features/train/review";
 import { sportLabel } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 import { poseSlugFor } from "@/services/live/pose";
@@ -11,7 +12,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
   const { supabase, user } = await requireUser();
   const { data: workout } = await supabase
     .from("workouts")
-    .select("id, sport, title, objective, duration_min, intensity, why_text, status, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, exercise_library(slug, name))")
+    .select("id, sport, title, objective, duration_min, intensity, why_text, status, structure, zones, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, exercise_library(slug, name))")
     .eq("id", workoutId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -46,11 +47,30 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
     };
   });
   const strength = workout.sport === "strength" || workout.sport === "bodybuilding";
+  const structure = recordOf(workout.structure);
+  const zones = recordOf(workout.zones);
+  const review = structure.coachingReview;
+  const existing = review && typeof review === "object" && !Array.isArray(review) && typeof (review as { text?: unknown }).text === "string"
+    ? {
+        text: String((review as { text: string }).text),
+        source: (review as { source?: string }).source === "model" ? "model" as const : "rules" as const,
+      }
+    : null;
+  const { count } = await supabase
+    .from("completed_workouts")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("workout_id", workout.id);
 
   return (
     <PageFrame eyebrow={sportLabel(workout.sport)} title={workout.title} lede={workout.why_text}>
       <p className="text-sm text-muted">{workout.duration_min} min · {workout.intensity} · {workout.status}</p>
-      <p>{workout.objective}</p>
+      <section className="grid gap-2">
+        <h2 className="text-lg font-bold">Purpose</h2>
+        <p>{workout.objective}</p>
+      </section>
+      <StructureList title="Structure" record={structure} hidden={new Set(["clientKey", "coachingReview", "exercises"])} />
+      <StructureList title="Zones" record={zones} hidden={new Set()} />
       {strength ? (
         <StrengthLogger
           workoutId={workout.id}
@@ -66,6 +86,29 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
           {workout.sport === "mobility" || workout.sport === "recovery" ? <Link className="btn btn-primary" href="/recovery">Log recovery</Link> : null}
         </div>
       )}
+      <WorkoutReview workoutId={workout.id} logged={workout.status === "completed" || (count ?? 0) > 0} existing={existing} />
     </PageFrame>
+  );
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function StructureList({ title, record, hidden }: { title: string; record: Record<string, unknown>; hidden: Set<string> }) {
+  const rows = Object.entries(record).filter(([key, value]) => !hidden.has(key) && (typeof value === "string" || typeof value === "number"));
+  if (!rows.length) return null;
+  return (
+    <section>
+      <h2 className="text-lg font-bold">{title}</h2>
+      <dl className="mt-2 divide-y divide-line border-y border-line">
+        {rows.map(([key, value]) => (
+          <div key={key} className="grid grid-cols-[8rem_1fr] gap-3 py-2 text-sm">
+            <dt className="capitalize text-muted">{key.replaceAll("_", " ")}</dt>
+            <dd className="font-semibold">{String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
