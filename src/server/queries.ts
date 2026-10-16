@@ -150,18 +150,37 @@ export async function loadHome() {
         end = block.end_date;
       }
     }
-    const { data: windowWorkouts } = await shell.supabase
-      .from("workouts")
-      .select("status, scheduled_date")
-      .eq("user_id", shell.user.id)
-      .gte("scheduled_date", start)
-      .lte("scheduled_date", end)
-      .is("deleted_at", null);
+    const doneFrom = kind === "event" ? "1970-01-01" : start;
+    const [{ data: windowWorkouts }, { data: logs }] = await Promise.all([
+      shell.supabase
+        .from("workouts")
+        .select("id, status, scheduled_date")
+        .eq("user_id", shell.user.id)
+        .gte("scheduled_date", start)
+        .lte("scheduled_date", end)
+        .is("deleted_at", null),
+      shell.supabase
+        .from("completed_workouts")
+        .select("workout_id, started_at")
+        .eq("user_id", shell.user.id)
+        .gte("started_at", `${doneFrom}T00:00:00Z`)
+        .lte("started_at", `${today}T23:59:59Z`),
+    ]);
     progress = {
       kind,
       label,
       horizon: end,
-      ...trainingWindow({ today, start, end, workouts: windowWorkouts ?? [] }),
+      ...trainingWindow({
+        today,
+        start,
+        end,
+        doneFrom,
+        workouts: windowWorkouts ?? [],
+        logs: (logs ?? []).map((log) => ({
+          workout_id: log.workout_id,
+          started_on: String(log.started_at).slice(0, 10),
+        })),
+      }),
     };
   }
   return {

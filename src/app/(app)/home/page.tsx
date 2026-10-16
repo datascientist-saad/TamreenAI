@@ -194,7 +194,7 @@ function ProgressTrack({
         </div>
       </dl>
       <p className="text-sm text-muted">
-        {total === 0 ? "No sessions are scheduled in this window." : "Still needed counts sessions still on the calendar. It is not an estimated fitness gap."}
+        {total === 0 ? "No sessions are scheduled in this window." : "Done counts logged sessions. Still needed counts sessions still on the calendar."}
       </p>
     </section>
   );
