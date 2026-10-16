@@ -76,21 +76,25 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   if (parsed.weightKg != null) athleteUpdate.weight_kg = parsed.weightKg;
   if (parsed.bodyFat != null) athleteUpdate.body_fat_pct = parsed.bodyFat;
   if (parsed.benchmarks) {
-    Object.assign(athleteUpdate, {
-      reported_5k_seconds: parsed.benchmarks.fiveKSeconds,
-      reported_10k_seconds: parsed.benchmarks.tenKSeconds,
-      reported_half_seconds: parsed.benchmarks.halfSeconds,
-      reported_marathon_seconds: parsed.benchmarks.marathonSeconds,
-      weekly_run_km: parsed.benchmarks.weeklyRunKm,
-      ftp_watts: parsed.benchmarks.ftpWatts,
-      weekly_bike_km: parsed.benchmarks.weeklyBikeKm,
-      swim_100m_seconds: parsed.benchmarks.swim100Seconds,
-      swim_400m_seconds: parsed.benchmarks.swim400Seconds,
-      weekly_swim_m: parsed.benchmarks.weeklySwimM,
-      squat_kg: parsed.benchmarks.squatKg,
-      bench_kg: parsed.benchmarks.benchKg,
-      deadlift_kg: parsed.benchmarks.deadliftKg,
-    });
+    const columns = {
+      fiveKSeconds: "reported_5k_seconds",
+      tenKSeconds: "reported_10k_seconds",
+      halfSeconds: "reported_half_seconds",
+      marathonSeconds: "reported_marathon_seconds",
+      weeklyRunKm: "weekly_run_km",
+      ftpWatts: "ftp_watts",
+      weeklyBikeKm: "weekly_bike_km",
+      swim100Seconds: "swim_100m_seconds",
+      swim400Seconds: "swim_400m_seconds",
+      weeklySwimM: "weekly_swim_m",
+      squatKg: "squat_kg",
+      benchKg: "bench_kg",
+      deadliftKg: "deadlift_kg",
+    } as const;
+    for (const [key, column] of Object.entries(columns)) {
+      const value = parsed.benchmarks[key as keyof typeof columns];
+      if (typeof value === "number") athleteUpdate[column] = value;
+    }
   }
   const { error: athleteError } = await supabase.from("athlete_profiles").update(athleteUpdate).eq("user_id", user.id);
   if (athleteError) throw new Error(athleteError.message);
