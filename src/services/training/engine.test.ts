@@ -66,6 +66,45 @@ test("load treats swimming as cardiovascular work with less musculoskeletal cost
   assert.ok(swim < run);
 });
 
+test("football and padel are scheduled from the sports on the profile", () => {
+  const plan = buildPlan({
+    ...athlete,
+    sports: ["football", "padel", "strength"],
+    primaryGoal: "improve_padel",
+    goals: ["improve_padel", "improve_football"],
+    eventDate: null,
+    eventName: null,
+    poolAccess: false,
+    bikeAccess: false,
+  });
+  const sports = new Set(plan.sessions.map((item) => item.sport));
+  assert.ok(sports.has("padel"));
+  assert.ok(sports.has("football"));
+  assert.ok(sports.has("strength"));
+  assert.equal(sports.has("running"), false);
+  assert.match(plan.explanation, /padel/);
+  const titles = plan.sessions.map((item) => `${item.date}|${item.sport}|${item.title}`);
+  assert.equal(new Set(titles).size, titles.length);
+});
+
+test("onboarding on Saturday still schedules that day", () => {
+  const plan = buildPlan({
+    ...athlete,
+    startDate: "2026-10-17",
+    sports: ["padel", "football", "strength"],
+    primaryGoal: "improve_padel",
+    goals: ["improve_padel"],
+    eventDate: null,
+    eventName: null,
+    preferredDays: [1, 2, 3, 4, 5, 6],
+    poolAccess: false,
+    bikeAccess: false,
+  });
+  const today = plan.sessions.filter((item) => item.date === "2026-10-17");
+  assert.equal(today.length, 1);
+  assert.equal(today[0]?.sport, "padel");
+});
+
 test("hybrid plan includes several sports and explains the event", () => {
   const plan = buildPlan(athlete);
   const sports = new Set(plan.sessions.map((item) => item.sport));

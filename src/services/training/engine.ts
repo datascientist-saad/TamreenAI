@@ -34,14 +34,30 @@ export type Sport =
   | "swimming"
   | "brick"
   | "mobility"
-  | "recovery";
+  | "recovery"
+  | "football"
+  | "padel"
+  | "basketball"
+  | "tennis"
+  | "volleyball"
+  | "pickleball"
+  | "badminton"
+  | "cricket";
 export type CatalogSport =
   | "strength"
   | "bodybuilding"
   | "running"
   | "cycling"
   | "swimming"
-  | "triathlon";
+  | "triathlon"
+  | "football"
+  | "padel"
+  | "basketball"
+  | "tennis"
+  | "volleyball"
+  | "pickleball"
+  | "badminton"
+  | "cricket";
 
 export interface AthleteContext {
   startDate: string;
@@ -213,7 +229,98 @@ const SPORT_FACTOR: Record<Sport, number> = {
   brick: 1.15,
   mobility: 0.35,
   recovery: 0.3,
+  football: 1.08,
+  basketball: 1.06,
+  volleyball: 1,
+  padel: 0.95,
+  tennis: 0.95,
+  badminton: 0.9,
+  pickleball: 0.85,
+  cricket: 0.8,
 };
+
+const COURT_SPORTS: Array<{
+  slug: Extract<CatalogSport, Sport>;
+  practice: string;
+  sharp: string;
+  objective: string;
+  why: string;
+  focus: string;
+}> = [
+  {
+    slug: "football",
+    practice: "Football practice",
+    sharp: "Football match speed",
+    objective: "Repeated sprints, first touch, and change of direction",
+    why: "Football is intermittent sprinting. The hard day stays away from heavy squats so the legs can still change direction.",
+    focus: "6 x 30 m sprints with a jog back, then first-touch patterns",
+  },
+  {
+    slug: "padel",
+    practice: "Padel session",
+    sharp: "Padel point play",
+    objective: "Short points, the split step, and glass-wall defense",
+    why: "Padel is explosive lateral work in short points. Volume stays moderate so the shoulder and the legs recover before the next match.",
+    focus: "Split step, bandeja, and recovery to the middle",
+  },
+  {
+    slug: "basketball",
+    practice: "Basketball skills",
+    sharp: "Basketball live play",
+    objective: "Defensive slides, repeated jumps, and live possessions",
+    why: "Basketball spends the legs on jumps and slides. A heavy squat day is not placed against a live session.",
+    focus: "Closeout slides and short live segments",
+  },
+  {
+    slug: "tennis",
+    practice: "Tennis rally session",
+    sharp: "Tennis point play",
+    objective: "Rallies, the serve, and the recovery step back to the middle",
+    why: "Tennis quality is one session in the week. It is not stacked on the day after heavy squats.",
+    focus: "Serve plus one, then recovery to the center mark",
+  },
+  {
+    slug: "volleyball",
+    practice: "Volleyball practice",
+    sharp: "Volleyball jump session",
+    objective: "Approach jumps, landings, and court movement",
+    why: "Jumping and landing are the cost. Heavy squats are not placed the day before a jump session.",
+    focus: "Approach jumps with full landings, then easy pepper",
+  },
+  {
+    slug: "pickleball",
+    practice: "Pickleball play",
+    sharp: "Pickleball match play",
+    objective: "Hands at the kitchen and short-court coverage",
+    why: "Pickleball is quick hands and short movement. The session stays sharp without turning into extra running volume.",
+    focus: "Dinks, speed-ups, and reset to the kitchen",
+  },
+  {
+    slug: "badminton",
+    practice: "Badminton footwork",
+    sharp: "Badminton match play",
+    objective: "Lunges, overhead clears, and recovery to the center",
+    why: "Badminton is lunges and repeated overhead work. The hard day is one session, not stacked on heavy legs.",
+    focus: "Six-corner footwork, then controlled clears",
+  },
+  {
+    slug: "cricket",
+    practice: "Cricket nets",
+    sharp: "Cricket fielding fitness",
+    objective: "Net batting or bowling, plus the repeated sprints of fielding",
+    why: "Nets and fielding ask for sprints between periods of standing. The hard fielding day stays away from heavy squats.",
+    focus: "Nets, then 8 fielding shuttles with a full walk back",
+  },
+];
+
+function isCourtSport(sport: string): boolean {
+  return COURT_SPORTS.some((item) => item.slug === sport);
+}
+
+function joinNames(names: string[]): string {
+  if (names.length < 2) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export function addDays(iso: string, days: number): string {
   const [year, month, day] = iso.split("-").map(Number);
@@ -465,7 +572,8 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
   const run = tri || wants(ctx, "running");
   const bike = (tri || wants(ctx, "cycling")) && (ctx.bikeAccess || wants(ctx, "cycling") || tri);
   const swim = (tri || wants(ctx, "swimming")) && ctx.poolAccess;
-  const lift = ctx.gymAccess && (wants(ctx, "strength") || wants(ctx, "bodybuilding") || tri || run || bike || swim);
+  const court = COURT_SPORTS.filter((item) => wants(ctx, item.slug));
+  const lift = ctx.gymAccess && (wants(ctx, "strength") || wants(ctx, "bodybuilding") || tri || run || bike || swim || court.length > 0);
   const qualityIntensity: Intensity = phase === "base" || phase === "recovery" ? "tempo" : phase === "taper" ? "threshold" : "vo2";
   const items: Template[] = [];
 
@@ -561,11 +669,32 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
       structure: { bikeMinShare: 0.7, runMinShare: 0.3 },
     });
   }
+  const orderedCourt = [...court].sort((a, b) => Number(ctx.primaryGoal.includes(b.slug)) - Number(ctx.primaryGoal.includes(a.slug)));
+  for (const play of orderedCourt) {
+    const named = ctx.primaryGoal.includes(play.slug) || ctx.goals.some((goal) => goal.includes(play.slug));
+    const endurance = tri || wants(ctx, "running") || wants(ctx, "cycling") || wants(ctx, "swimming");
+    const focus = named || (!endurance && court.length <= 2);
+    const sharp = phase === "build" || phase === "peak";
+    items.push({
+      sport: play.slug,
+      title: sharp ? play.sharp : play.practice,
+      objective: play.objective,
+      intensity: phase === "recovery" || phase === "taper" ? "easy" : sharp ? "tempo" : "moderate",
+      importance: focus ? "key" : "supporting",
+      share: sharp ? 0.85 : 0.75,
+      lowerBody: true,
+      quality: sharp,
+      recoveryHours: sharp ? 30 : 18,
+      why: play.why,
+      zones: { effort: sharp ? "match speed" : "practice pace" },
+      structure: { focus: play.focus },
+    });
+  }
   if (lift) {
     items.push({
       sport: wants(ctx, "bodybuilding") && !tri ? "bodybuilding" : "strength",
       title: "Lower-body strength",
-      objective: "Strength that supports the endurance sports instead of competing with them",
+      objective: court.length && !run && !bike ? "Strength that supports the sports you play" : "Strength that supports the endurance sports instead of competing with them",
       intensity: phase === "taper" || phase === "recovery" ? "moderate" : "moderate",
       importance: ctx.primaryGoal === "increase_strength" ? "key" : "supporting",
       share: 0.85,
@@ -629,7 +758,10 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
     .filter((day) => day >= 0 && day <= 6)
     .sort((a, b) => a - b);
   // weekStart is Monday. Day 1 is Monday and day 0 is Sunday.
-  const pool = days.map((day) => addDays(weekStart, (day + 6) % 7)).sort();
+  const pool = days
+    .map((day) => addDays(weekStart, (day + 6) % 7))
+    .filter((date) => date >= ctx.startDate)
+    .sort();
   const used = new Set<string>();
   const placed: PlannedSession[] = [];
 
@@ -747,13 +879,21 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
     focus: blockFocus(currentPhase, ctx),
     sortOrder: blocks.length,
   });
-  const sports = ctx.sports.join(", ") || "general training";
+  const courtNames = COURT_SPORTS.filter((item) => wants(ctx, item.slug)).map((item) => item.slug);
+  const hasRun = isTri(ctx) || wants(ctx, "running");
+  const hasBike = isTri(ctx) || wants(ctx, "cycling");
+  const hasSwim = (isTri(ctx) || wants(ctx, "swimming")) && ctx.poolAccess;
+  const trainingNotes = [
+    hasRun || hasBike || hasSwim ? "Heavy lower-body strength is kept away from interval running and the long run." : "",
+    hasSwim ? "Swimming is used as cardiovascular work that does not beat up the legs the way running does." : "",
+    courtNames.length ? `Practice for ${joinNames(courtNames)} is in this plan. Match-speed days stay away from heavy squats.` : "",
+  ].filter(Boolean);
   const explanation = [
-    `This is one plan for ${sports}.`,
+    `This is one plan for ${ctx.sports.length ? joinNames(ctx.sports) : "general training"}.`,
     ctx.eventName && ctx.eventDate
       ? `${ctx.eventName} is on ${ctx.eventDate}, so the block order moves from base toward a taper instead of repeating four unrelated programs.`
       : "No event date is set, so the plan uses an eight-to-sixteen week base and build rhythm with a recovery week every fourth week.",
-    "Heavy lower-body strength is kept away from interval running and the long run. Swimming is used as cardiovascular work that does not beat up the legs the way running does.",
+    trainingNotes.join(" ") || "The week follows the sports and the days you selected.",
     ctx.poolAccess ? "" : "Pool access is off, so swim sessions are not scheduled.",
     ctx.redFlag
       ? "A current red-flag injury is on the profile, so this draft stays in recovery until that status changes."
@@ -808,6 +948,19 @@ export function findConflicts(sessions: PlannedSession[]): ConflictFinding[] {
             `${earlier.title} on ${earlier.date} loads the same muscles the run needs.`,
             `${later.title} on ${later.date} is a ${later.intensity} running session.`,
             "Tamreen separates these so the interval or long run is not performed on pre-fatigued legs.",
+          ],
+          sessionA: earlierIndex,
+          sessionB: laterIndex,
+        });
+      } else if (heavyLower(earlier) && isCourtSport(later.sport) && later.quality) {
+        findings.push({
+          severity: "warning",
+          title: "Training conflict detected",
+          explanation: "Heavy lower-body strength the day before match speed makes the sport session slower and less sharp.",
+          factors: [
+            `${earlier.title} on ${earlier.date} loads the legs the sport session needs.`,
+            `${later.title} on ${later.date} is a ${later.intensity} ${later.sport} session.`,
+            "Tamreen separates these so match speed is not performed on pre-fatigued legs.",
           ],
           sessionA: earlierIndex,
           sessionB: laterIndex,

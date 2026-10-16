@@ -142,7 +142,10 @@ label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
 .sport-strength, .sport-bodybuilding { background: #1f1115; color: white; }
 .sport-brick { background: var(--maroon); color: white; }
 .sport-mobility, .sport-recovery { background: var(--line); color: var(--ink); }
+.sport-football, .sport-basketball, .sport-volleyball, .sport-cricket { background: rgba(138, 21, 56, 0.16); color: var(--maroon); }
+.sport-padel, .sport-tennis, .sport-pickleball, .sport-badminton { background: rgba(201, 168, 118, 0.35); color: #6d5428; }
 
+.dark .sport-padel, .dark .sport-tennis, .dark .sport-pickleball, .dark .sport-badminton { color: #f3e6cf; }
 .dark .sport-cycling { color: #f3e6cf; }
 .dark .sport-swimming { color: #d5e7f2; }
 .dark .sport-strength, .dark .sport-bodybuilding { background: #2a171d; }

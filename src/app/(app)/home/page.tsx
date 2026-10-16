@@ -37,28 +37,28 @@ export default async function HomePage() {
     reported: {},
   }) / 7;
 
+  const todayWorkouts = distinctSessions(data.todayWorkouts).sort(
+    (a, b) => importanceRank(a.importance) - importanceRank(b.importance),
+  );
+  const weekWorkouts = distinctSessions(data.weekWorkouts);
+
   return (
-    <main className="mx-auto grid max-w-5xl gap-4 px-4 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="eyebrow">Today</p>
-          <h1 className="text-4xl font-extrabold">{greeting(name, data.hour)}</h1>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link className="btn btn-primary" href="/plan">Open plan</Link>
-          {data.profile?.is_demo ? <DemoBanner /> : null}
-        </div>
+    <main className="mx-auto grid max-w-5xl gap-4 px-4 py-5">
+      <header>
+        <p className="eyebrow">Today</p>
+        <h1 className="text-4xl font-extrabold">{greeting(name, data.hour)}</h1>
+        {data.profile?.is_demo ? <div className="mt-3"><DemoBanner /></div> : null}
       </header>
-      <WeekStrip today={data.today} workouts={data.weekWorkouts} />
+      <WeekStrip today={data.today} workouts={weekWorkouts} />
       {data.readiness?.blocked_for_safety ? <SafetyBanner /> : null}
       <section className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
         <article className="app-card p-5">
           <h2 className="text-lg font-bold">Today&apos;s training</h2>
-          {data.todayWorkouts.length === 0 ? (
-            <EmptyState title="Nothing is scheduled." body="Finish onboarding or open the plan to generate the week." href="/onboarding" action="Set up training" />
+          {todayWorkouts.length === 0 ? (
+            <RestToday next={weekWorkouts.find((workout) => workout.scheduled_date > data.today)} />
           ) : (
             <ul className="mt-4 grid gap-3">
-              {data.todayWorkouts.map((workout) => (
+              {todayWorkouts.map((workout) => (
                 <li key={workout.id} className="rounded-2xl border border-line p-4">
                   <div className="flex items-center justify-between gap-3">
                     <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
@@ -144,6 +144,53 @@ export default async function HomePage() {
   );
 }
 
+function RestToday({
+  next,
+}: {
+  next?: { id: string; scheduled_date: string; sport: string; title: string; duration_min: number };
+}) {
+  if (!next) {
+    return <EmptyState title="Rest today." body="The plan is clear today. Open it when you want the full block." href="/plan" action="See the plan" />;
+  }
+  const when = new Date(`${next.scheduled_date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short", timeZone: "UTC" });
+  return (
+    <div className="mt-4">
+      <p className="text-sm text-muted">Rest today. Next session is {when}.</p>
+      <div className="mt-3 rounded-2xl border border-line p-4">
+        <span className={`chip sport-${next.sport}`}>{sportLabel(next.sport)}</span>
+        <h3 className="mt-2 text-2xl font-bold">{next.title}</h3>
+        <p className="text-sm text-muted">{next.duration_min} min</p>
+        <Link className="btn btn-primary mt-4" href={`/train/${next.id}`}>View session</Link>
+      </div>
+    </div>
+  );
+}
+
+function daySport(sport: string): string {
+  if (sport === "strength" || sport === "bodybuilding") return "Lift";
+  if (sport === "pickleball") return "Pickle";
+  if (sport === "badminton") return "Badminton";
+  if (sport === "basketball") return "Hoops";
+  if (sport === "volleyball") return "Volley";
+  return sportLabel(sport);
+}
+
+function importanceRank(importance: string | undefined): number {
+  if (importance === "key") return 0;
+  if (importance === "supporting") return 1;
+  return 2;
+}
+
+function distinctSessions<T extends { scheduled_date?: string; sport: string; title: string; duration_min: number }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = `${row.scheduled_date ?? ""}|${row.sport}|${row.title}|${row.duration_min}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function WeekStrip({
   today,
   workouts,
@@ -158,7 +205,7 @@ function WeekStrip({
         <h2 className="font-bold">This week</h2>
         <Link className="text-sm font-bold text-maroon" href="/plan">Full plan</Link>
       </div>
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+      <div className="mt-3 grid grid-cols-7 gap-1">
         {days.map((date) => {
           const rows = workouts.filter((workout) => workout.scheduled_date === date);
           const first = rows[0];
@@ -167,13 +214,10 @@ function WeekStrip({
             <Link
               key={date}
               href={first ? `/train/${first.id}` : "/plan"}
-              className={`min-w-36 rounded-2xl border px-3 py-3 ${date === today ? "border-maroon bg-maroon text-white" : "border-line bg-paper"}`}
+              className={`rounded-xl px-1 py-2 text-center ${date === today ? "bg-maroon text-white" : "bg-paper"}`}
             >
-              <span className="text-xs font-bold uppercase tracking-wide">{date === today ? "Today" : label}</span>
-              <span className="mt-1 block font-bold">{first ? first.title : "Rest"}</span>
-              <span className={`mt-1 block text-xs ${date === today ? "text-white/80" : "text-muted"}`}>
-                {first ? `${first.duration_min} min${rows.length > 1 ? ` · +${rows.length - 1}` : ""}` : "Open plan"}
-              </span>
+              <span className="block text-[10px] font-bold uppercase tracking-wide">{date === today ? "Today" : label}</span>
+              <span className="mt-1 block truncate text-[11px] font-semibold leading-tight">{first ? daySport(first.sport) : "Rest"}</span>
             </Link>
           );
         })}

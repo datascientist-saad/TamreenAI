@@ -77,7 +77,7 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
         const name = String(form.get("name") ?? "");
         const supabase = createClient();
         if (mode === "signup") {
-          const { error: authError } = await supabase.auth.signUp({
+          const { data: signedUp, error: authError } = await supabase.auth.signUp({
             email,
             password,
             options: {
@@ -86,6 +86,7 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
             },
           });
           if (authError) setError(authError.message);
+          else if (signedUp.session) router.push("/onboarding");
           else setNotice("Check your email to verify the account, then sign in.");
           return;
         }

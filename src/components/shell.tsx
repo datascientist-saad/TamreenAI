@@ -81,13 +81,10 @@ export function AppShell({
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             const Icon = tab.icon;
-            const live = tab.href === "/live";
             return (
               <li key={tab.href} className="grid place-items-center py-2">
-                <Link href={tab.href} className={cn("grid min-h-12 min-w-12 place-items-center text-[11px] font-bold", active ? "text-maroon" : "text-muted")}>
-                  <span className={cn("grid h-10 w-10 place-items-center rounded-full", live && "bg-maroon text-white shadow-lg")}>
-                    <Icon size={18} />
-                  </span>
+                <Link href={tab.href} className={cn("grid min-h-12 min-w-12 place-items-center gap-0.5 text-[11px] font-bold", active ? "text-maroon" : "text-muted")}>
+                  <Icon size={18} />
                   {tab.label}
                 </Link>
               </li>

@@ -26,6 +26,7 @@ import {
   type PlannedSession,
   type Sport,
 } from "@/services/training/engine";
+import { sportSlugs } from "@/lib/sports";
 import { todayInTimeZone } from "@/lib/utils";
 import { MIN_POSE_FRAMES } from "@/services/live/geometry";
 import { LIVE_EXERCISES, POSE_MODEL_NAME, type ModelFormPayload } from "@/services/live/pose";
@@ -44,8 +45,6 @@ async function limit(action: string, maxCalls: number, windowSeconds: number) {
   return { supabase, user };
 }
 
-const sportList = ["strength", "bodybuilding", "running", "cycling", "swimming", "triathlon"] as const;
-
 const onboardingSchema = z.object({
   fullName: z.string().trim().min(1).max(80),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -54,7 +53,7 @@ const onboardingSchema = z.object({
   weightKg: z.number().min(20).max(400),
   bodyFat: z.number().min(2).max(70).nullable(),
   experience: z.enum(["beginner", "intermediate", "advanced", "elite"]),
-  sports: z.array(z.enum(sportList)).min(1),
+  sports: z.array(z.enum(sportSlugs)).min(1),
   primaryGoal: z.string().min(1),
   goals: z.array(z.string()).min(1),
   customGoal: z.string().max(160).optional(),
@@ -138,14 +137,30 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   }).eq("user_id", user.id);
   if (athleteError) throw new Error(athleteError.message);
 
+  const missingSports = parsed.sports.filter((slug) => !sportId.has(slug));
+  if (missingSports.length) {
+    throw new Error(`These sports are not in the catalog yet: ${missingSports.join(", ")}.`);
+  }
   await supabase.from("athlete_sports").delete().eq("user_id", user.id);
-  await supabase.from("athlete_sports").insert(parsed.sports.flatMap((slug) => {
+  const { error: sportError } = await supabase.from("athlete_sports").insert(parsed.sports.map((slug) => {
     const id = sportId.get(slug);
-    return id ? [{ user_id: user.id, sport_id: id, is_primary: slug === parsed.sports[0], experience_level: parsed.experience }] : [];
+    if (!id) throw new Error(`These sports are not in the catalog yet: ${slug}.`);
+    return {
+      user_id: user.id,
+      sport_id: id,
+      is_primary: slug === parsed.sports[0],
+      experience_level: parsed.experience,
+    };
   }));
+  if (sportError) throw new Error(sportError.message);
 
+  const selectedGoals = [...new Set([parsed.primaryGoal, ...parsed.goals])];
+  const missingGoals = selectedGoals.filter((slug) => !goalId.has(slug));
+  if (missingGoals.length) {
+    throw new Error(`These goals are not in the catalog yet: ${missingGoals.join(", ")}.`);
+  }
   await supabase.from("athlete_goals").delete().eq("user_id", user.id);
-  const goalRows = [...new Set([parsed.primaryGoal, ...parsed.goals])].flatMap((slug) => {
+  const goalRows = selectedGoals.flatMap((slug) => {
     const id = goalId.get(slug);
     return id ? [{
       user_id: user.id,
@@ -248,7 +263,8 @@ export async function generatePlan() {
   const plan = buildPlan(ctx);
   const today = ctx.startDate;
   await supabase.from("training_plans").update({ status: "archived" }).eq("user_id", user.id).eq("status", "active");
-  await supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", user.id).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null);
+  const { error: clearError } = await supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", user.id).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null);
+  if (clearError) throw new Error(clearError.message);
 
   const { data: created, error } = await supabase.from("training_plans").insert({
     user_id: user.id,
@@ -276,7 +292,14 @@ export async function generatePlan() {
   const blockId = (date: string) => (blocks ?? []).find((block) => date >= block.start_date && date <= block.end_date)?.id ?? null;
   const { data: library } = await supabase.from("exercise_library").select("id, slug");
   const exerciseId = new Map((library ?? []).map((exercise) => [exercise.slug, exercise.id]));
-  const workoutRows = plan.sessions.map((session, index) => ({
+  const seenSessions = new Set<string>();
+  const sessions = plan.sessions.filter((session) => {
+    const key = `${session.date}|${session.sport}|${session.title}`;
+    if (seenSessions.has(key)) return false;
+    seenSessions.add(key);
+    return true;
+  });
+  const workoutRows = sessions.map((session, index) => ({
     plan_id: created.id,
     block_id: blockId(session.date),
     user_id: user.id,
@@ -297,7 +320,7 @@ export async function generatePlan() {
   const { data: workouts, error: workoutError } = await supabase.from("workouts").insert(workoutRows).select("id, structure");
   if (workoutError) throw new Error(workoutError.message);
   const byKey = new Map((workouts ?? []).map((workout) => [Number((workout.structure as { clientKey?: number }).clientKey), workout.id]));
-  const exerciseRows = plan.sessions.flatMap((session, index) => {
+  const exerciseRows = sessions.flatMap((session, index) => {
     const workoutId = byKey.get(index);
     if (!workoutId) return [];
     return session.exercises.map((exercise, sort) => ({
