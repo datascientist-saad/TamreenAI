@@ -94,8 +94,32 @@ const onboardingSchema = z.object({
   }),
 });
 
+function onboardingIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Check the form and try again.";
+  const field = issue.path.join(".");
+  const labels: Record<string, string> = {
+    fullName: "Name",
+    dateOfBirth: "Date of birth",
+    heightCm: "Height",
+    weightKg: "Weight",
+    minutesPerDay: "Minutes per day",
+    sports: "Sports",
+    goals: "Goals",
+    "event.name": "Event name",
+    "event.date": "Event date",
+    "event.distanceM": "Distance",
+    "event.goalTimeSeconds": "Goal time",
+  };
+  const label = labels[field] ?? "That answer";
+  return `${label} needs a correction. ${issue.message}`;
+}
+
 export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
-  const parsed = onboardingSchema.parse(input);
+  const parsedResult = onboardingSchema.safeParse(input);
+  if (!parsedResult.success) return { ok: false as const, message: onboardingIssue(parsedResult.error) };
+  const parsed = parsedResult.data;
+  try {
   const { supabase, user } = await limit("onboarding", 12, 3600);
   const { data: sports } = await supabase.from("sports").select("id, slug");
   const { data: goals } = await supabase.from("goals").select("id, slug");
@@ -106,7 +130,6 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
     full_name: parsed.fullName,
     date_of_birth: parsed.dateOfBirth,
     sex: parsed.sex,
-    onboarding_completed: true,
   }).eq("id", user.id);
   if (profileError) throw new Error(profileError.message);
 
@@ -188,7 +211,9 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   }
 
   if (parsed.event) {
-    await supabase.from("events").insert({
+    const { error: clearEventError } = await supabase.from("events").delete().eq("owner_user_id", user.id).eq("description", "Training target created during onboarding.");
+    if (clearEventError) return { ok: false as const, message: clearEventError.message };
+    const { error: eventError } = await supabase.from("events").insert({
       owner_user_id: user.id,
       name: parsed.event.name,
       event_type: parsed.event.eventType,
@@ -198,11 +223,17 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
       goal_time_seconds: parsed.event.goalTimeSeconds,
       description: "Training target created during onboarding.",
     });
+    if (eventError) return { ok: false as const, message: eventError.message };
   }
 
   await generatePlan();
+  const { error: doneError } = await supabase.from("profiles").update({ onboarding_completed: true }).eq("id", user.id);
+  if (doneError) return { ok: false as const, message: doneError.message };
   revalidatePath("/home");
-  return { ok: true };
+  return { ok: true as const };
+  } catch (error) {
+    return { ok: false as const, message: error instanceof Error ? error.message : "The plan could not be saved." };
+  }
 }
 
 async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]): Promise<AthleteContext> {
