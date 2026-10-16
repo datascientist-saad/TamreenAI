@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { sportLabels, type SportSlug } from "./sports";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -80,8 +81,7 @@ export function shiftIsoDate(iso: string, days: number): string {
 }
 
 export function sportLabel(sport: string): string {
-  const labels: Record<string, string> = {
-    strength: "Strength",
+  const short: Record<string, string> = {
     bodybuilding: "Hypertrophy",
     running: "Run",
     cycling: "Bike",
@@ -89,9 +89,10 @@ export function sportLabel(sport: string): string {
     brick: "Brick",
     mobility: "Mobility",
     recovery: "Recovery",
-    triathlon: "Triathlon",
   };
-  return labels[sport] ?? sport;
+  if (sport in short) return short[sport];
+  if (sport in sportLabels) return sportLabels[sport as SportSlug];
+  return sport;
 }
 
 export function intensityLabel(intensity: string): string {

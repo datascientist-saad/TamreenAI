@@ -2,44 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { goalGroups, goalOptions, sportGroups, sportLabels, type SportSlug } from "@/lib/sports";
 import { saveOnboarding } from "@/server/actions";
 
-const sports = [
-  ["strength", "Strength"],
-  ["bodybuilding", "Bodybuilding"],
-  ["running", "Running"],
-  ["cycling", "Cycling"],
-  ["swimming", "Swimming"],
-  ["triathlon", "Triathlon"],
-] as const;
-
-const goals = [
-  ["build_muscle", "Build muscle"],
-  ["lose_fat", "Lose fat"],
-  ["recomposition", "Recomposition"],
-  ["increase_strength", "Increase strength"],
-  ["improve_5k", "Improve 5K"],
-  ["improve_10k", "Improve 10K"],
-  ["half_marathon", "Half marathon"],
-  ["marathon", "Marathon"],
-  ["sprint_triathlon", "Sprint triathlon"],
-  ["olympic_triathlon", "Olympic triathlon"],
-  ["ironman_70_3", "Ironman 70.3"],
-  ["ironman", "Ironman"],
-  ["improve_cycling", "Improve cycling"],
-  ["improve_swimming", "Improve swimming"],
-  ["general_hybrid", "General hybrid fitness"],
-  ["custom", "Custom"],
-] as const;
-
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const goalGroups = [
-  ["Strength", ["build_muscle", "lose_fat", "recomposition", "increase_strength"]],
-  ["Running", ["improve_5k", "improve_10k", "half_marathon", "marathon"]],
-  ["Triathlon", ["sprint_triathlon", "olympic_triathlon", "ironman_70_3", "ironman"]],
-  ["Other", ["improve_cycling", "improve_swimming", "general_hybrid", "custom"]],
-] as const;
 
 export function OnboardingWizard() {
   const router = useRouter();
@@ -77,6 +43,11 @@ export function OnboardingWizard() {
     <form className="mx-auto grid max-w-xl gap-4 px-4 py-6" onSubmit={async (event) => {
       event.preventDefault();
       if (step < 6) {
+        if (step === 1 && sportsPicked.length === 0) {
+          setError("Choose at least one sport.");
+          return;
+        }
+        setError("");
         setStep(step + 1);
         return;
       }
@@ -96,7 +67,7 @@ export function OnboardingWizard() {
           weightKg: Number(form.get("weight")),
           bodyFat: num("bodyFat"),
           experience: String(form.get("experience") ?? "intermediate") as "beginner" | "intermediate" | "advanced" | "elite",
-          sports: sportsPicked as Array<"strength" | "bodybuilding" | "running" | "cycling" | "swimming" | "triathlon">,
+          sports: sportsPicked as SportSlug[],
           primaryGoal: primary,
           goals: goalPicked.includes(primary) ? goalPicked : [primary, ...goalPicked],
           customGoal: String(form.get("customGoal") ?? ""),
@@ -144,8 +115,7 @@ export function OnboardingWizard() {
     }}>
       <p className="eyebrow">Step {step + 1} of 7</p>
       <h1 className="text-3xl font-extrabold">Build the athlete model first.</h1>
-      {step === 0 ? (
-        <div className="grid gap-3">
+      <div className={step === 0 ? "grid gap-3" : "hidden"}>
           <label>Name<input name="fullName" required /></label>
           <label>Date of birth<input name="dob" type="date" required /></label>
           <label>Sex, used only for strength reference bands
@@ -168,23 +138,24 @@ export function OnboardingWizard() {
             </select>
           </label>
         </div>
-      ) : null}
-      {step === 1 ? (
-        <fieldset className="grid grid-cols-2 gap-2">
-          <legend className="mb-2 font-bold">Select every sport you train</legend>
-          {sports.map(([slug, label]) => (
-            <button key={slug} type="button" className={`btn ${sportsPicked.includes(slug) ? "btn-primary" : "btn-ghost"}`} onClick={() => toggle(sportsPicked, slug, setSports)}>{label}</button>
+      <div className={step === 1 ? "grid gap-4" : "hidden"}>
+          <p className="font-bold">Select every sport you train</p>
+          {sportGroups.map((group) => (
+            <fieldset key={group.label} className="grid grid-cols-2 gap-2">
+              <legend className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group.label}</legend>
+              {group.slugs.map((slug) => (
+                <button key={slug} type="button" className={`btn ${sportsPicked.includes(slug) ? "btn-primary" : "btn-ghost"}`} onClick={() => toggle(sportsPicked, slug, setSports)}>{sportLabels[slug]}</button>
+              ))}
+            </fieldset>
           ))}
-        </fieldset>
-      ) : null}
-      {step === 2 ? (
-        <div className="grid gap-4">
+        </div>
+      <div className={step === 2 ? "grid gap-4" : "hidden"}>
           <p className="text-sm text-muted">Tap a goal to include it. Tap a selected goal to make it the primary one.</p>
           {goalGroups.map(([group, slugs]) => (
             <fieldset key={group} className="grid gap-2">
               <legend className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group}</legend>
               {slugs.map((slug) => {
-                const label = goals.find(([id]) => id === slug)?.[1] ?? slug;
+                const label = goalOptions.find(([id]) => id === slug)?.[1] ?? slug;
                 const selected = goalPicked.includes(slug);
                 const isPrimary = primary === slug && selected;
                 return (
@@ -209,9 +180,7 @@ export function OnboardingWizard() {
           ))}
           <label>Custom wording<input name="customGoal" /></label>
         </div>
-      ) : null}
-      {step === 3 ? (
-        <div className="grid gap-3">
+      <div className={step === 3 ? "grid gap-3" : "hidden"}>
           <p className="text-sm text-muted">Leave a field blank if you do not know it. Blank means no score, not a guessed score.</p>
           {(sportsPicked.includes("running") || sportsPicked.includes("triathlon")) ? (
             <>
@@ -243,9 +212,7 @@ export function OnboardingWizard() {
             </>
           ) : null}
         </div>
-      ) : null}
-      {step === 4 ? (
-        <div className="grid gap-3">
+      <div className={step === 4 ? "grid gap-3" : "hidden"}>
           <p className="font-bold">Days you can train</p>
           <div className="flex flex-wrap gap-2">
             {days.map((label, index) => (
@@ -257,9 +224,7 @@ export function OnboardingWizard() {
           <label className="flex items-center gap-2"><input name="pool" type="checkbox" /> Pool</label>
           <label className="flex items-center gap-2"><input name="bike" type="checkbox" /> Bike</label>
         </div>
-      ) : null}
-      {step === 5 ? (
-        <div className="grid gap-3">
+      <div className={step === 5 ? "grid gap-3" : "hidden"}>
           <label>Current injury area<input name="injuryArea" placeholder="Leave blank if none" /></label>
           <label>What should Tamreen avoid?<input name="avoid" placeholder="squat, overhead" /></label>
           <label>Notes<textarea name="injuryNote" /></label>
@@ -272,9 +237,7 @@ export function OnboardingWizard() {
           </label>
           <label className="flex items-center gap-2"><input name="redFlag" type="checkbox" /> Severe pain, chest pain, fainting, or another reason to stop training</label>
         </div>
-      ) : null}
-      {step === 6 ? (
-        <div className="grid gap-3">
+      <div className={step === 6 ? "grid gap-3" : "hidden"}>
           <label className="flex items-center gap-2"><input type="checkbox" checked={training} onChange={(event) => setTraining(event.target.checked)} /> Are you training for something?</label>
           {training ? (
             <>
@@ -286,7 +249,6 @@ export function OnboardingWizard() {
             </>
           ) : null}
         </div>
-      ) : null}
       {error ? <p className="text-sm text-live">{error}</p> : null}
       <div className="flex gap-2">
         {step > 0 ? <button className="btn btn-ghost" type="button" onClick={() => setStep(step - 1)}>Back</button> : null}

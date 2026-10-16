@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { OnboardingRedirect } from "@/components/onboarding-redirect";
 import { AppShell } from "@/components/shell";
 import { SetupScreen } from "@/components/states";
 import { createClient } from "@/lib/supabase/server";
@@ -17,17 +18,9 @@ export default async function AthleteLayout({ children }: { children: React.Reac
     <>
       <RegisterWorker />
       <AppShell roles={(roles ?? []).map((role) => role.role as string)}>
-        {profile && !profile.onboarding_completed ? <OnboardingGate /> : null}
+        {profile?.onboarding_completed === true ? null : <OnboardingRedirect />}
         {children}
       </AppShell>
     </>
-  );
-}
-
-function OnboardingGate() {
-  return (
-    <div className="border-b border-gold/40 bg-gold/15 px-4 py-3 text-sm">
-      Finish onboarding so Tamreen can build one plan across your sports. <a className="font-bold underline" href="/onboarding">Continue</a>
-    </div>
   );
 }
