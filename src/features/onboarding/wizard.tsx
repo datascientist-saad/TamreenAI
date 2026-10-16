@@ -7,6 +7,13 @@ import { goals, sports } from "./schema";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const goalGroups = [
+  ["Strength", ["build_muscle", "lose_fat", "recomposition", "increase_strength"]],
+  ["Running", ["improve_5k", "improve_10k", "half_marathon", "marathon"]],
+  ["Triathlon", ["sprint_triathlon", "olympic_triathlon", "ironman_70_3", "ironman"]],
+  ["Other", ["improve_cycling", "improve_swimming", "general_hybrid", "custom"]],
+] as const;
+
 export function OnboardingWizard({ initialName }: { initialName: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -15,6 +22,7 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
   const [name, setName] = useState(initialName);
   const [picked, setPicked] = useState<string[]>(["running", "strength"]);
   const [goal, setGoal] = useState("general_hybrid");
+  const [customGoal, setCustomGoal] = useState("");
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [experience, setExperience] = useState<"beginner" | "intermediate" | "advanced" | "elite">("intermediate");
@@ -86,15 +94,27 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
               <button key={slug} type="button" className={`btn min-h-11 ${picked.includes(slug) ? "btn-primary" : "btn-ghost"}`} onClick={() => toggleSport(slug)} aria-pressed={picked.includes(slug)}>{label}</button>
             ))}
           </fieldset>
-          <fieldset className="grid gap-2">
+          <fieldset className="grid gap-4">
             <legend className="font-bold">Primary goal</legend>
-            {goals.map(([slug, label]) => (
-              <label key={slug} className="flex min-h-11 items-center justify-between rounded-2xl border border-line px-3 py-2 font-medium">
-                <span>{label}</span>
-                <input type="radio" name="goal" checked={goal === slug} onChange={() => setGoal(slug)} />
-              </label>
+            {goalGroups.map(([group, slugs]) => (
+              <div key={group} className="grid gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group}</p>
+                {slugs.map((slug) => {
+                  const label = goals.find(([id]) => id === slug)?.[1] ?? slug;
+                  return (
+                    <ChoiceRow key={slug} selected={goal === slug} onClick={() => setGoal(slug)}>
+                      {label}
+                    </ChoiceRow>
+                  );
+                })}
+              </div>
             ))}
           </fieldset>
+          {goal === "custom" ? (
+            <label>Custom goal
+              <input value={customGoal} onChange={(event) => setCustomGoal(event.target.value)} maxLength={160} placeholder="Name the goal" />
+            </label>
+          ) : null}
           <label>Event name, optional
             <input value={eventName} onChange={(event) => setEventName(event.target.value)} placeholder="Leave blank if you are not racing" />
           </label>
@@ -132,15 +152,12 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
           <label>Minutes each day
             <input value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} type="number" min={15} max={360} />
           </label>
-          <label className="flex min-h-11 items-center gap-3 font-medium">
-            <input type="checkbox" checked={gym} onChange={(event) => { setEquipmentTouched(true); setGym(event.target.checked); }} /> Gym
-          </label>
-          <label className="flex min-h-11 items-center gap-3 font-medium">
-            <input type="checkbox" checked={bike} onChange={(event) => { setEquipmentTouched(true); setBike(event.target.checked); }} /> Bike
-          </label>
-          <label className="flex min-h-11 items-center gap-3 font-medium">
-            <input type="checkbox" checked={pool} onChange={(event) => { setEquipmentTouched(true); setPool(event.target.checked); }} /> Pool
-          </label>
+          <div className="grid gap-2">
+            <p className="font-bold">Equipment</p>
+            <ChoiceRow selected={gym} onClick={() => { setEquipmentTouched(true); setGym((value) => !value); }}>Gym</ChoiceRow>
+            <ChoiceRow selected={bike} onClick={() => { setEquipmentTouched(true); setBike((value) => !value); }}>Bike</ChoiceRow>
+            <ChoiceRow selected={pool} onClick={() => { setEquipmentTouched(true); setPool((value) => !value); }}>Pool</ChoiceRow>
+          </div>
         </div>
       ) : null}
       {step === 2 ? (
@@ -176,6 +193,7 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
                   sports: picked as Array<"strength" | "bodybuilding" | "running" | "cycling" | "swimming" | "triathlon">,
                   primaryGoal: goal,
                   goals: [goal],
+                  customGoal,
                   preferredDays: preferred,
                   minutesPerDay: minutes,
                   gymAccess: gym,
@@ -202,6 +220,22 @@ export function OnboardingWizard({ initialName }: { initialName: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+function ChoiceRow({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${selected ? "border-[#8a1538] bg-[#8a1538] text-white" : "border-line bg-card text-ink"}`}
+    >
+      <span>{children}</span>
+      <span aria-hidden="true" className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${selected ? "border-white" : "border-current opacity-40"}`}>
+        {selected ? <span className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+      </span>
+    </button>
   );
 }
 
