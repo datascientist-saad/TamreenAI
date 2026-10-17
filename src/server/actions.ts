@@ -387,11 +387,11 @@ async function writePlan(supabase: Database, userId: string) {
       selections,
       exercises,
       complete: openAIConfigured()
-        ? async () => {
+        ? async (repair) => {
           try {
-            return await requestChatDraft(ctx, selections, exercises);
+            return await requestChatDraft(ctx, selections, exercises, repair);
           } catch (error) {
-            const message = error instanceof Error ? error.message : "ChatGPT plan generation failed.";
+            const message = error instanceof Error ? error.message : "Plan generation failed.";
             console.error(message.replace(/sk-[A-Za-z0-9_-]+/g, "sk-redacted").slice(0, 300));
             throw error;
           }

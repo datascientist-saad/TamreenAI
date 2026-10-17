@@ -16,13 +16,14 @@ export async function requestChatDraft(
   ctx: AthleteContext,
   selections: StoredSelections,
   exercises: Array<{ slug: string; name: string }>,
+  repair: string | null = null,
 ): Promise<{ draft: unknown; model: string }> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) throw new Error("OPENAI_API_KEY is not set.");
   const model = openAIModel();
   const messages = chatPlanMessages(ctx, selections, exercises);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45_000);
+  const timer = setTimeout(() => controller.abort(), repair ? 20_000 : 35_000);
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -36,7 +37,7 @@ export async function requestChatDraft(
         max_completion_tokens: 6000,
         messages: [
           { role: "system", content: messages.system },
-          { role: "user", content: messages.user },
+          { role: "user", content: repair ? `${messages.user}\n\nRevise the plan. ${repair}` : messages.user },
         ],
         response_format: { type: "json_object" },
       }),

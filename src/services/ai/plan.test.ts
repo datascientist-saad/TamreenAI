@@ -6,6 +6,7 @@ import {
   chatPlanMessages,
   describePlanSource,
   materializeChatPlan,
+  planCoversSelections,
   planInputs,
   resolvePlan,
   type StoredSelections,
@@ -155,6 +156,12 @@ test("ChatGPT draft is placed only on saved days and drops disallowed work", () 
   const strength = plan?.sessions.find((session) => session.sport === "strength");
   assert.deepEqual(strength?.exercises.map((exercise) => exercise.slug), ["plank"]);
   assert.equal(plan?.sessions.some((session) => session.structure.source !== "chatgpt"), false);
+  const visible = plan?.sessions.filter((session) => session.date >= "2026-10-17" && session.date <= "2026-10-23") ?? [];
+  const visibleSports = new Set(visible.map((session) => session.sport));
+  assert.ok(visibleSports.has("padel"));
+  assert.ok(visibleSports.has("strength"));
+  assert.equal(visible.some((session) => session.title === "Tempo run"), false);
+  assert.equal(plan ? planCoversSelections(plan, athlete) : false, true);
 });
 
 test("a draft that does not match the selections is rejected", () => {
@@ -206,6 +213,10 @@ test("the ChatGPT prompt contains the saved selections and no secret", () => {
   const messages = chatPlanMessages(athlete, selections, library);
   assert.match(messages.user, /improve_padel/);
   assert.match(messages.user, /"avoidExercises":\["squat"\]/);
+  assert.match(messages.user, /mustIncludeSports/);
+  assert.match(messages.system, /every preferred day/);
+  assert.match(messages.user, /"weekday":1/);
+  assert.match(messages.user, /"weekday":6/);
   assert.doesNotMatch(`${messages.system}\n${messages.user}`, /sk-|@/);
   const described = describePlanSource(planInputs(selections, { generator: "chatgpt", model: "gpt-4.1-mini", fallbackReason: null }));
   assert.equal(described?.eyebrow, "TamreenAI");
@@ -216,6 +227,127 @@ test("the ChatGPT prompt contains the saved selections and no secret", () => {
   assert.equal(fallback?.eyebrow, "TamreenAI");
   assert.match(fallback?.detail ?? "", /TamreenAI created this plan/);
   assert.doesNotMatch(fallback?.detail ?? "", /ChatGPT|training rules/);
+});
+
+test("a loose draft still schedules every saved day and sport", () => {
+  const plan = materializeChatPlan(athlete, {
+    plan: {
+      name: "Padel week",
+      explanation: "Uses the two saved days.",
+      patterns: [{
+        phase: "Base",
+        focus: "Match play and strength",
+        sessions: [
+          { weekday: "Saturday", sport: "Padel", title: "Point play", objective: "Split step", duration: "50 min", intensity: "match speed", importance: "key", why: "Primary goal.", lowerBody: true },
+          { day: "Monday", sport: "gym", title: "Strength support", minutes: 45, intensity: "moderate", why: "Leave the legs for padel.", exercises: [{ name: "Plank", sets: "3", reps: "30 sec" }] },
+        ],
+      }],
+    },
+  }, library);
+  assert.ok(plan);
+  assert.equal(plan ? planCoversSelections(plan, athlete) : false, true);
+  const visible = plan?.sessions.filter((session) => session.date >= athlete.startDate && session.date <= "2026-10-23") ?? [];
+  assert.ok(visible.some((session) => session.sport === "padel" && session.title === "Point play"));
+  assert.ok(visible.some((session) => session.sport === "strength"));
+  const strength = plan?.sessions.find((session) => session.sport === "strength");
+  assert.deepEqual(strength?.exercises.map((exercise) => exercise.slug), ["plank"]);
+});
+
+test("a single tempo run is replaced by the saved sports and days", async () => {
+  const repairs: Array<string | null> = [];
+  const runner: AthleteContext = {
+    ...athlete,
+    sports: ["running", "strength"],
+    primaryGoal: "improve_5k",
+    goals: ["improve_5k", "increase_strength"],
+  };
+  const runnerSelections = { ...selections, sports: ["running", "strength"], primaryGoal: "improve_5k", goals: ["improve_5k", "increase_strength"] };
+  const resolved = await resolvePlan({
+    ctx: runner,
+    selections: runnerSelections,
+    exercises: library,
+    complete: async (repair) => {
+      repairs.push(repair);
+      if (!repair) {
+        return {
+          draft: {
+            name: "Tempo only",
+            explanation: "One tempo run repeated for the week.",
+            patterns: [{
+              phase: "base",
+              focus: "Tempo",
+              sessions: [{
+                weekday: 6,
+                sport: "running",
+                title: "Tempo run",
+                objective: "One hard run",
+                durationMin: 40,
+                intensity: "tempo",
+                importance: "key",
+                recoveryHours: 24,
+                why: "A generic tempo run.",
+                lowerBody: true,
+                quality: true,
+                zones: [],
+                exercises: [],
+              }],
+            }],
+          },
+          model: "gpt-4.1-mini",
+        };
+      }
+      return {
+        draft: {
+          name: "Running and strength",
+          explanation: "Monday is strength and Saturday is the quality run from the saved days.",
+          patterns: [{
+            phase: "base",
+            focus: "5K and strength",
+            sessions: [
+              {
+                weekday: 1,
+                sport: "strength",
+                title: "Strength support",
+                objective: "Upper body that leaves the legs for running",
+                durationMin: 45,
+                intensity: "moderate",
+                importance: "supporting",
+                recoveryHours: 24,
+                why: "Strength is one of the saved sports.",
+                lowerBody: false,
+                quality: false,
+                zones: [],
+                exercises: [{ slug: "plank", sets: 3, reps: "30 sec", targetRpe: 7, restSeconds: 45, tempo: "controlled", technique: "straight", why: "Trunk stiffness." }],
+              },
+              {
+                weekday: 6,
+                sport: "running",
+                title: "Easy run",
+                objective: "Aerobic running for the 5K goal",
+                durationMin: 40,
+                intensity: "easy",
+                importance: "key",
+                recoveryHours: 24,
+                why: "Running is the primary saved sport.",
+                lowerBody: true,
+                quality: false,
+                zones: [],
+                exercises: [],
+              },
+            ],
+          }],
+        },
+        model: "gpt-4.1-mini",
+      };
+    },
+  });
+  assert.equal(repairs.length, 2);
+  assert.match(repairs[1] ?? "", /Monday|strength/);
+  assert.equal(resolved.source.generator, "chatgpt");
+  const visible = resolved.plan.sessions.filter((session) => session.date >= runner.startDate && session.date <= "2026-10-23");
+  assert.ok(visible.some((session) => session.sport === "running" && session.title === "Easy run"));
+  assert.ok(visible.some((session) => session.sport === "strength" && session.title === "Strength support"));
+  assert.equal(visible.some((session) => session.title === "Tempo run"), false);
 });
 
 test("fenced model JSON still parses", () => {
