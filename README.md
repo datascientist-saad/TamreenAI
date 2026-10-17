@@ -24,7 +24,7 @@ OPENAI_MODEL=gpt-4.1-mini
 
 `OPENAI_API_KEY` stays on the server. Leave it blank to keep generating plans with Tamreen's training rules. `OPENAI_MODEL` is optional.
 
-3. Apply the SQL in `supabase/migrations` in filename order. In the Supabase SQL editor, run `20261007060100_initial_schema.sql`, then `20261007060200_platform_rls.sql`, then `20261007060300_indexes_and_rate_limit.sql`.
+3. Apply the SQL in `supabase/migrations` in filename order. In the Supabase SQL editor, run `20261007060100_initial_schema.sql`, then `20261007060200_platform_rls.sql`, then `20261007060300_indexes_and_rate_limit.sql`, then the later migrations, including `20261017183000_whoop_metrics.sql`.
 4. Optional investor data: run `supabase/seed.sql` in the SQL editor. It creates labeled demo accounts. The password for every demo account is `TamreenDemo!2026`.
 
 | Email | Role |
@@ -54,8 +54,20 @@ Open `http://localhost:3000`.
 - When `OPENAI_API_KEY` is set, the server asks the configured model for a weekly pattern that uses every saved day and sport. That pattern is what the plan page shows. Tamreen still places sessions only on the selected days, drops sports the athlete cannot do, and removes avoided exercises. A reply that is only a single tempo run, or that misses a saved day or sport, is asked for once more. A red-flag injury stays on the recovery rules and is not sent to the model. If the key is missing or the reply still cannot be used, the deterministic training rules write the plan instead.
 - Other training decisions stay deterministic and store the factors that produced them. A major change waits for Accept or Keep original.
 - The live camera uses the device camera. Reps are manual. Form scores are not invented. A squat screen can save a clearly labeled placeholder example.
-- Wearable providers are disconnected adapters. They do not fabricate a sync.
+- WHOOP recovery, strain, and sleep are copied after the athlete authorizes the app. Other wearable providers are disconnected adapters. They do not fabricate a sync.
 - Gym cameras cannot enable facial recognition. Identification is QR, session assignment, an authenticated device, or a manual pick.
+
+## WHOOP
+
+Create an app in the [WHOOP developer dashboard](https://developer.whoop.com/) and set:
+
+```
+WHOOP_CLIENT_ID=
+WHOOP_CLIENT_SECRET=
+WHOOP_TOKEN_SECRET=
+```
+
+`WHOOP_TOKEN_SECRET` is at least 16 characters and stays on the server. Tamreen encrypts the access and refresh tokens with it. Register the redirect URL `{origin}/api/whoop/callback`, or set `WHOOP_REDIRECT_URI` to the exact URL you registered. The connect button on More sends the athlete to WHOOP. After authorization, Tamreen stores recovery, strain, and sleep for the last 30 days and shows them on Home, Recovery, and Analytics.
 
 ## Scripts
 

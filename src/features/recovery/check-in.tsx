@@ -11,7 +11,16 @@ const symptoms = [
   ["shortness_of_breath_at_rest", "Breathless at rest"],
 ] as const;
 
-export function RecoveryForm() {
+export function RecoveryForm({
+  defaults,
+}: {
+  defaults?: {
+    sleepHours?: number | null;
+    restingHr?: number | null;
+    hrv?: number | null;
+    sourceDay?: string | null;
+  };
+} = {}) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -46,14 +55,19 @@ export function RecoveryForm() {
   return (
     <form action={submit} className="grid gap-3">
       {blocked ? <SafetyBanner /> : null}
-      <label>How did you sleep? Hours<input name="sleepHours" inputMode="decimal" required defaultValue="7.5" /></label>
+      {defaults?.sourceDay ? (
+        <p className="text-sm text-muted">
+          Sleep, resting heart rate, and HRV start from WHOOP on {defaults.sourceDay}. Change them if they do not match how you feel. Saving a check-in does not overwrite the WHOOP metrics.
+        </p>
+      ) : null}
+      <label>How did you sleep? Hours<input name="sleepHours" inputMode="decimal" required defaultValue={defaults?.sleepHours ?? 7.5} /></label>
       <Scale name="sleepQuality" label="Sleep quality (1 poor, 5 excellent)" />
       <Scale name="soreness" label="How sore are you? (1 fresh, 5 very sore)" />
       <Scale name="fatigue" label="How fatigued do you feel? (1 fresh, 5 exhausted)" />
       <Scale name="motivation" label="How motivated are you? (1 low, 5 high)" />
       <Scale name="stress" label="Stress (1 calm, 5 high)" />
-      <label>Resting heart rate<input name="restingHr" inputMode="numeric" /></label>
-      <label>HRV<input name="hrv" inputMode="decimal" /></label>
+      <label>Resting heart rate<input name="restingHr" inputMode="numeric" defaultValue={defaults?.restingHr ?? ""} /></label>
+      <label>HRV<input name="hrv" inputMode="decimal" defaultValue={defaults?.hrv ?? ""} /></label>
       <fieldset className="grid gap-2">
         <legend className="font-bold">Stop-training symptoms</legend>
         {symptoms.map(([key, label]) => (

@@ -4,6 +4,7 @@ import { GoogleLinkButton } from "@/features/settings/google-link";
 import { WhoopConnect } from "@/features/settings/whoop-connect";
 import { submitFeedback, signOut } from "@/server/actions";
 import { requireUser } from "@/server/guard";
+import { loadWhoopSnapshot } from "@/services/wearables/whoop-load";
 
 const explore = [
   ["/recovery", "Recovery"],
@@ -17,12 +18,14 @@ const explore = [
   ["/settings", "All settings"],
 ];
 
-export default async function MorePage() {
+export default async function MorePage({ searchParams }: { searchParams: Promise<{ whoop?: string }> }) {
+  const query = await searchParams;
   const { supabase, user } = await requireUser();
-  const [{ data: roles }, { data: profile }, { data: primaryGoalRow }] = await Promise.all([
+  const [{ data: roles }, { data: profile }, { data: primaryGoalRow }, whoop] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", user.id).is("revoked_at", null),
     supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
     supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", user.id).eq("is_primary", true).maybeSingle(),
+    loadWhoopSnapshot(supabase, user.id, 1),
   ]);
   const roleList = (roles ?? []).map((row) => row.role as string);
   const desks = [
@@ -61,7 +64,12 @@ export default async function MorePage() {
 
       <section className="app-card grid gap-3 p-4">
         <h2 className="font-bold">WHOOP</h2>
-        <WhoopConnect />
+        <WhoopConnect
+          configured={whoop.configured}
+          connection={whoop.connection}
+          metrics={whoop.metrics}
+          noticeCode={query.whoop}
+        />
       </section>
 
       <section className="app-card grid gap-3 p-4">

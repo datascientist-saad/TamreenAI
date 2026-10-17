@@ -47,6 +47,13 @@ export default async function HomePage() {
       event={data.event}
       insight={data.insight}
       conflict={data.conflicts[0] ?? null}
+      whoop={
+        data.whoop.connection.status === "connected"
+        || data.whoop.connection.status === "error"
+        || data.whoop.metrics.length > 0
+          ? { status: data.whoop.connection.status, metrics: data.whoop.metrics }
+          : null
+      }
     />
   );
 }

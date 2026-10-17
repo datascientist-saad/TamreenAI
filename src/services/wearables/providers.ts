@@ -1,6 +1,7 @@
 /**
  * Wearable adapters normalize future provider payloads into Tamreen sessions.
- * None of these providers are connected. The app must not invent a sync.
+ * WHOOP recovery, strain, and sleep are loaded by the OAuth routes, not by this adapter.
+ * The other providers are not connected. The app must not invent a sync.
  */
 
 export interface NormalizedActivity {

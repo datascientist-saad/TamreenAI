@@ -15,24 +15,25 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
   const days = windows[range];
   const from = days == null ? "2000-01-01" : shift(today, -days);
-  const [{ data: loads }, { data: runs }, { data: rides }, { data: swims }, { data: scores }, { data: recovery }] = await Promise.all([
+  const [{ data: loads }, { data: runs }, { data: rides }, { data: swims }, { data: scores }, { data: recovery }, whoopMetrics] = await Promise.all([
     supabase.from("completed_workouts").select("started_at, load, sport").eq("user_id", user.id).gte("started_at", `${from}T00:00:00Z`).order("started_at"),
     supabase.from("running_sessions").select("distance_m, avg_pace_sec_per_km, avg_hr, completed_workouts!inner(started_at, user_id)").eq("user_id", user.id).limit(200),
     supabase.from("cycling_sessions").select("distance_m, avg_power, ftp, completed_workouts!inner(started_at, user_id)").eq("user_id", user.id).limit(200),
     supabase.from("swimming_sessions").select("distance_m, pace_sec_per_100m, completed_workouts!inner(started_at, user_id)").eq("user_id", user.id).limit(200),
     supabase.from("performance_scores").select("scored_on, score, dimension").eq("user_id", user.id).eq("dimension", "overall").gte("scored_on", from).order("scored_on"),
     supabase.from("recovery_logs").select("logged_on, sleep_hours, fatigue").eq("user_id", user.id).gte("logged_on", from).order("logged_on"),
+    supabase.from("whoop_metrics").select("day, recovery_score").eq("user_id", user.id).gte("day", from).order("day"),
   ]);
-  const points = series(metric, { loads: loads ?? [], runs: runs ?? [], rides: rides ?? [], swims: swims ?? [], scores: scores ?? [], recovery: recovery ?? [], from });
+  const points = series(metric, { loads: loads ?? [], runs: runs ?? [], rides: rides ?? [], swims: swims ?? [], scores: scores ?? [], recovery: recovery ?? [], whoop: whoopMetrics.data ?? [], from });
 
   return (
-    <PageFrame eyebrow="Analytics" title={metric} lede="One chart at a time. Open a metric, then change the window.">
+    <PageFrame eyebrow="Analytics" title={metric === "whoop" ? "WHOOP recovery" : metric} lede={metric === "whoop" ? "WHOOP recovery score for each stored day. Tamreen does not fill days WHOOP did not score." : "One chart at a time. Open a metric, then change the window."}>
       <div className="flex flex-wrap gap-2">
         {Object.keys(windows).map((item) => <Link key={item} className={`btn ${range === item ? "btn-primary" : "btn-ghost"}`} href={`/analytics?range=${item}&metric=${metric}`}>{item}</Link>)}
       </div>
       <div className="flex flex-wrap gap-2">
-        {["load", "volume", "running", "pace", "heart", "ftp", "swim", "recovery", "score"].map((item) => (
-          <Link key={item} className={`btn ${metric === item ? "btn-gold" : "btn-ghost"}`} href={`/analytics?range=${range}&metric=${item}`}>{item}</Link>
+        {["load", "volume", "running", "pace", "heart", "ftp", "swim", "recovery", "score", "whoop"].map((item) => (
+          <Link key={item} className={`btn ${metric === item ? "btn-gold" : "btn-ghost"}`} href={`/analytics?range=${range}&metric=${item}`}>{item === "whoop" ? "WHOOP" : item}</Link>
         ))}
       </div>
       <article className="app-card p-4">
@@ -49,6 +50,7 @@ function series(metric: string, input: {
   swims: Array<{ pace_sec_per_100m: number | null; completed_workouts: { started_at: string } | { started_at: string }[] }>;
   scores: Array<{ scored_on: string; score: number | null }>;
   recovery: Array<{ logged_on: string; sleep_hours: number | null; fatigue: number | null }>;
+  whoop: Array<{ day: string; recovery_score: number | null }>;
   from: string;
 }) {
   const started = (row: { completed_workouts: { started_at: string } | { started_at: string }[] }) => {
@@ -75,6 +77,11 @@ function series(metric: string, input: {
   }
   if (metric === "score") {
     return input.scores.filter((row) => row.score != null).map((row) => ({ label: row.scored_on.slice(5), value: Number(row.score) }));
+  }
+  if (metric === "whoop") {
+    return input.whoop
+      .filter((row) => row.recovery_score != null)
+      .map((row) => ({ label: row.day.slice(5), value: Math.round(Number(row.recovery_score)) }));
   }
   const byDay = new Map<string, number>();
   for (const row of input.loads) {
