@@ -18,7 +18,11 @@ The browser only receives the public Supabase URL and anon key. The service role
 ```
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
 ```
+
+`OPENAI_API_KEY` stays on the server. Leave it blank to keep generating plans with Tamreen's training rules. `OPENAI_MODEL` is optional.
 
 3. Apply the SQL in `supabase/migrations` in filename order. In the Supabase SQL editor, run `20261007060100_initial_schema.sql`, then `20261007060200_platform_rls.sql`, then `20261007060300_indexes_and_rate_limit.sql`, then the later migrations, including `20261017183000_whoop_metrics.sql`.
 4. Optional investor data: run `supabase/seed.sql` in the SQL editor. It creates labeled demo accounts. The password for every demo account is `TamreenDemo!2026`.
@@ -46,7 +50,9 @@ Open `http://localhost:3000`.
 
 - Accounts, onboarding, plans, logs, recovery, conflicts, and scores are stored in Postgres.
 - Row Level Security uses `user_roles` and relationship tables. JWT user metadata is not an authorization source.
-- Training decisions are deterministic and store the factors that produced them. A major change waits for Accept or Keep original.
+- Onboarding stores sports, goals, days, equipment, benchmarks, injuries, and the event on the athlete profile. Rebuilding a plan stores that same selection snapshot on the training plan.
+- When `OPENAI_API_KEY` is set, the server asks the configured model for a weekly pattern that uses every saved day and sport. That pattern is what the plan page shows. Tamreen still places sessions only on the selected days, drops sports the athlete cannot do, and removes avoided exercises. A reply that is only a single tempo run, or that misses a saved day or sport, is asked for once more. A red-flag injury stays on the recovery rules and is not sent to the model. If the key is missing or the reply still cannot be used, the deterministic training rules write the plan instead.
+- Other training decisions stay deterministic and store the factors that produced them. A major change waits for Accept or Keep original.
 - The live camera uses the device camera. Reps are manual. Form scores are not invented. A squat screen can save a clearly labeled placeholder example.
 - WHOOP recovery, strain, and sleep are copied after the athlete authorizes the app. Other wearable providers are disconnected adapters. They do not fabricate a sync.
 - Gym cameras cannot enable facial recognition. Identification is QR, session assignment, an authenticated device, or a manual pick.

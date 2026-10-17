@@ -31,7 +31,7 @@ export function RebuildPlanButton() {
             });
         }}
       >
-        {pending ? "Rebuilding…" : "Rebuild plan"}
+        {pending ? "Creating…" : "Create with TamreenAI"}
       </button>
       {error ? <p className="text-sm text-live">{error}</p> : null}
     </div>

@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/states";
 import { WorkoutControls } from "@/features/calendar/controls";
 import { formatDuration, shiftIsoDate, sportLabel, todayInTimeZone } from "@/lib/utils";
 import { RebuildPlanButton } from "@/features/plan/rebuild-button";
+import { SelectionSummary } from "@/features/plan/selection-summary";
 import { requireUser } from "@/server/guard";
 
 export const maxDuration = 60;
@@ -13,7 +14,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
   const { supabase, user } = await requireUser();
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
-  const { data: plan } = await supabase.from("training_plans").select("id, name, explanation, start_date, end_date").eq("user_id", user.id).eq("status", "active").is("deleted_at", null).maybeSingle();
+  const { data: plan } = await supabase.from("training_plans").select("id, name, explanation, start_date, end_date, inputs").eq("user_id", user.id).eq("status", "active").is("deleted_at", null).maybeSingle();
   const { data: blocks } = plan
     ? await supabase.from("training_blocks").select("id, phase, name, start_date, end_date, focus").eq("plan_id", plan.id).order("sort_order")
     : { data: [] };
@@ -30,6 +31,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
 
   return (
     <PageFrame eyebrow="Training plan" title={plan?.name ?? "No active plan"} lede={plan?.explanation}>
+      <SelectionSummary inputs={plan?.inputs} />
       <div className="sticky top-16 z-20 -mx-4 flex flex-wrap gap-2 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur md:top-0">
         {["today", "week", "month", "block"].map((item) => (
           <Link key={item} className={`btn min-h-10 ${view === item ? "btn-primary" : "btn-ghost"}`} href={`/plan?view=${item}`}>{item}</Link>
@@ -48,7 +50,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
         </ul>
       ) : null}
       {(workouts ?? []).length === 0 && view !== "week" ? (
-        <EmptyState title="This view is empty." body="Finish onboarding or rebuild the plan. Tamreen writes the plan from your sports, goal, and event date." href="/onboarding" action="Complete onboarding" />
+        <EmptyState title="This view is empty." body="Finish onboarding or create a plan. TamreenAI writes it from the sports, goal, and days saved on your profile." href="/onboarding" action="Complete onboarding" />
       ) : (
         <div className="grid gap-4">
           {groupDates(view, from, to, today, workouts ?? []).map((date) => {
