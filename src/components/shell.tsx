@@ -68,11 +68,11 @@ export function AppShell({
           <ThemeToggle />
         </div>
       </aside>
-      <div className="safe-bottom md:pb-0">
-        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-line bg-card/95 px-4 py-3 backdrop-blur md:hidden">
-          <Link href="/home" aria-label="Tamreen home"><Mark /></Link>
-          <Link href="/plan" className={cn("btn min-h-10 px-4", pathname === "/plan" || pathname.startsWith("/plan/") ? "btn-primary" : "btn-ghost")}>Plan</Link>
-          <ThemeToggle />
+      <div className="min-w-0 safe-bottom md:pb-0">
+        <header className="sticky top-0 z-40 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur md:hidden">
+          <Link href="/home" aria-label="Tamreen home" className="shrink-0"><Mark /></Link>
+          <Link href="/plan" className={cn("btn shrink-0", pathname === "/plan" || pathname.startsWith("/plan/") ? "btn-primary" : "btn-ghost")}>Plan</Link>
+          <ThemeToggle compact />
         </header>
         {children}
       </div>
@@ -84,7 +84,7 @@ export function AppShell({
             const live = tab.href === "/live";
             return (
               <li key={tab.href} className="grid place-items-center py-2">
-                <Link href={tab.href} className={cn("grid min-h-12 min-w-12 place-items-center text-[11px] font-bold", active ? "text-maroon" : "text-muted")}>
+                <Link href={tab.href} className={cn("grid w-full min-h-12 min-w-0 place-items-center px-0.5 text-center text-[11px] font-bold leading-tight", active ? "text-maroon" : "text-muted")}>
                   <span className={cn("grid h-10 w-10 place-items-center rounded-full", live && "bg-maroon text-white shadow-lg")}>
                     <Icon size={18} />
                   </span>

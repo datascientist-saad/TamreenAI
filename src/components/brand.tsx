@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { cn } from "@/lib/utils";
 
 export function Mark({ size = 36 }: { size?: number }) {
   return (
@@ -13,9 +14,9 @@ export function Mark({ size = 36 }: { size?: number }) {
   );
 }
 
-export function Wordmark() {
+export function Wordmark({ className }: { className?: string }) {
   return (
-    <span className="inline-flex items-center gap-3 font-bold tracking-tight">
+    <span className={cn("inline-flex items-center gap-2 font-bold tracking-tight sm:gap-3", className)}>
       <Mark />
       <span>TAMREEN AI</span>
     </span>

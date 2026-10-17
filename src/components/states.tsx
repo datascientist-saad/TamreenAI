@@ -40,7 +40,7 @@ export function SafetyBanner() {
 
 export function DemoBanner() {
   return (
-    <p className="rounded-full border border-gold/50 bg-gold/15 px-3 py-1 text-xs font-bold tracking-wide text-ink">
+    <p className="max-w-full rounded-2xl border border-gold/50 bg-gold/15 px-3 py-2 text-xs font-bold leading-5 tracking-wide text-pretty text-ink sm:rounded-full sm:py-1">
       Demo athlete · seeded history is labeled and is not a live measurement
     </p>
   );
