@@ -152,14 +152,14 @@ export function OnboardingWizard() {
             deadliftKg: num("deadlift"),
           },
         });
-        if (!result.ok) {
-          setError(result.message);
+        if (!result?.ok) {
+          setError(result?.message || "The plan could not be saved.");
           setPending(false);
           return;
         }
         window.location.assign("/plan");
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Onboarding could not be saved.");
+      } catch {
+        setError("The plan could not be saved. Try again.");
         setPending(false);
       }
     }}>
@@ -304,7 +304,7 @@ export function OnboardingWizard() {
       {error ? <p className="text-sm text-live">{error}</p> : null}
       <div className="flex gap-2">
         {step > 0 ? <button className="btn btn-ghost" type="button" onClick={() => setStep(step - 1)}>Back</button> : null}
-        <button className="btn btn-primary" type="submit" disabled={pending}>{step === 6 ? "Save and build plan" : "Continue"}</button>
+        <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? "Saving plan…" : step === 6 ? "Save and build plan" : "Continue"}</button>
       </div>
     </form>
   );

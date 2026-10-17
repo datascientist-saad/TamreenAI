@@ -3,8 +3,10 @@ import { PageFrame } from "@/components/page";
 import { EmptyState } from "@/components/states";
 import { WorkoutControls } from "@/features/calendar/controls";
 import { formatDuration, shiftIsoDate, sportLabel, todayInTimeZone } from "@/lib/utils";
+import { RebuildPlanButton } from "@/features/plan/rebuild-button";
 import { requireUser } from "@/server/guard";
-import { generatePlan } from "@/server/actions";
+
+export const maxDuration = 60;
 
 export default async function PlanPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const { view = "week" } = await searchParams;
@@ -32,9 +34,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
         {["today", "week", "month", "block"].map((item) => (
           <Link key={item} className={`btn min-h-10 ${view === item ? "btn-primary" : "btn-ghost"}`} href={`/plan?view=${item}`}>{item}</Link>
         ))}
-        <form action={async () => { "use server"; await generatePlan(); }}>
-          <button className="btn btn-gold min-h-10" type="submit">Rebuild plan</button>
-        </form>
+        <RebuildPlanButton />
       </div>
       {view === "block" ? (
         <ul className="grid gap-2">
