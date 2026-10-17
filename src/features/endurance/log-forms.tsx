@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { TimeFields } from "@/components/time-fields";
+import { clockFromParts, parsePaceList } from "@/lib/utils";
 import { logRide, logRun, logSwim } from "@/server/actions";
 
 function useSave() {
@@ -16,29 +18,44 @@ function numberOrNull(value: FormDataEntryValue | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function durationFrom(formData: FormData): { seconds: number } | { error: string } {
+  const parsed = clockFromParts(formData.get("durationHours"), formData.get("durationMinutes"), formData.get("durationSeconds"));
+  if (!parsed.ok) return { error: parsed.message };
+  if (parsed.seconds == null) return { error: "Enter the duration in hours, minutes, and seconds." };
+  return { seconds: parsed.seconds };
+}
+
 export function RunForm({ workoutId, title }: { workoutId: string | null; title: string }) {
   const router = useRouter();
   const state = useSave();
   async function submit(formData: FormData) {
     state.setPending(true);
     state.setError(null);
-    const splits = String(formData.get("splits") || "")
-      .split(",")
-      .map((part) => Number(part.trim()))
-      .filter((part) => part > 0);
+    const splits = parsePaceList(String(formData.get("splits") || ""));
+    if (!splits.ok) {
+      state.setError(splits.message);
+      state.setPending(false);
+      return;
+    }
+    const duration = durationFrom(formData);
+    if ("error" in duration) {
+      state.setError(duration.error);
+      state.setPending(false);
+      return;
+    }
     try {
       const result = await logRun({
         workoutId,
         title: String(formData.get("title") || title),
         sessionType: String(formData.get("sessionType") || "easy"),
         distanceM: Number(formData.get("distanceM")),
-        durationSeconds: Number(formData.get("durationSeconds")),
+        durationSeconds: duration.seconds,
         avgHr: numberOrNull(formData.get("avgHr")),
         hrStart: numberOrNull(formData.get("hrStart")),
         hrEnd: numberOrNull(formData.get("hrEnd")),
         cadence: numberOrNull(formData.get("cadence")),
         elevationM: numberOrNull(formData.get("elevationM")),
-        splits,
+        splits: splits.seconds,
         rpe: Number(formData.get("rpe") || 5),
         notes: String(formData.get("notes") || ""),
       });
@@ -57,13 +74,13 @@ export function RunForm({ workoutId, title }: { workoutId: string | null; title:
         </select>
       </label>
       <label>Distance (metres)<input name="distanceM" inputMode="decimal" required /></label>
-      <label>Duration (seconds)<input name="durationSeconds" inputMode="numeric" required /></label>
+      <TimeFields name="duration" legend="Duration" />
       <label>Average heart rate<input name="avgHr" inputMode="numeric" /></label>
       <label>Heart rate at start<input name="hrStart" inputMode="numeric" /></label>
       <label>Heart rate at finish<input name="hrEnd" inputMode="numeric" /></label>
       <label>Cadence<input name="cadence" inputMode="numeric" /></label>
       <label>Elevation (m)<input name="elevationM" inputMode="decimal" /></label>
-      <label>Splits, seconds per km, comma separated<input name="splits" placeholder="330, 328, 335" /></label>
+      <label>Splits, minutes:seconds per km<input name="splits" placeholder="5:30, 5:28, 5:35" /></label>
       <label>RPE<input name="rpe" defaultValue="5" inputMode="decimal" /></label>
       <label>Notes<textarea name="notes" /></label>
       {state.error ? <p className="text-sm text-live">{state.error}</p> : null}
@@ -78,13 +95,19 @@ export function RideForm({ workoutId, title }: { workoutId: string | null; title
   async function submit(formData: FormData) {
     state.setPending(true);
     state.setError(null);
+    const duration = durationFrom(formData);
+    if ("error" in duration) {
+      state.setError(duration.error);
+      state.setPending(false);
+      return;
+    }
     try {
       await logRide({
         workoutId,
         title: String(formData.get("title") || title),
         sessionType: String(formData.get("sessionType") || "endurance"),
         distanceM: Number(formData.get("distanceM")),
-        durationSeconds: Number(formData.get("durationSeconds")),
+        durationSeconds: duration.seconds,
         avgPower: numberOrNull(formData.get("avgPower")),
         normalizedPower: numberOrNull(formData.get("normalizedPower")),
         ftp: numberOrNull(formData.get("ftp")),
@@ -110,7 +133,7 @@ export function RideForm({ workoutId, title }: { workoutId: string | null; title
         </select>
       </label>
       <label>Distance (metres)<input name="distanceM" inputMode="decimal" required /></label>
-      <label>Duration (seconds)<input name="durationSeconds" inputMode="numeric" required /></label>
+      <TimeFields name="duration" legend="Duration" />
       <label>Average power<input name="avgPower" inputMode="numeric" /></label>
       <label>Normalized power<input name="normalizedPower" inputMode="numeric" /></label>
       <label>FTP (watts)<input name="ftp" inputMode="numeric" /></label>
@@ -131,13 +154,19 @@ export function SwimForm({ workoutId, title }: { workoutId: string | null; title
   async function submit(formData: FormData) {
     state.setPending(true);
     state.setError(null);
+    const duration = durationFrom(formData);
+    if ("error" in duration) {
+      state.setError(duration.error);
+      state.setPending(false);
+      return;
+    }
     try {
       await logSwim({
         workoutId,
         title: String(formData.get("title") || title),
         sessionType: String(formData.get("sessionType") || "endurance"),
         distanceM: Number(formData.get("distanceM")),
-        durationSeconds: Number(formData.get("durationSeconds")),
+        durationSeconds: duration.seconds,
         laps: numberOrNull(formData.get("laps")),
         strokeRate: numberOrNull(formData.get("strokeRate")),
         strokeCount: numberOrNull(formData.get("strokeCount")),
@@ -161,7 +190,7 @@ export function SwimForm({ workoutId, title }: { workoutId: string | null; title
         </select>
       </label>
       <label>Distance (metres)<input name="distanceM" inputMode="decimal" required /></label>
-      <label>Duration (seconds)<input name="durationSeconds" inputMode="numeric" required /></label>
+      <TimeFields name="duration" legend="Duration" />
       <label>Laps<input name="laps" inputMode="numeric" /></label>
       <label>Stroke rate<input name="strokeRate" inputMode="numeric" /></label>
       <label>Stroke count<input name="strokeCount" inputMode="numeric" /></label>

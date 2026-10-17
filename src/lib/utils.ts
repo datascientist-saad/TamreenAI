@@ -53,6 +53,40 @@ export function formatClock(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+export type ClockParse = { ok: true; seconds: number | null } | { ok: false; message: string };
+
+export function clockFromParts(hours: unknown, minutes: unknown, seconds: unknown): ClockParse {
+  const raw = [hours, minutes, seconds].map((value) => (value == null ? "" : String(value).trim()));
+  if (raw.every((part) => part === "")) return { ok: true, seconds: null };
+  const nums = raw.map((part) => (part === "" ? 0 : Number(part)));
+  if (nums.some((value) => !Number.isInteger(value) || value < 0)) {
+    return { ok: false, message: "Use whole hours, minutes, and seconds." };
+  }
+  const [hour, minute, second] = nums;
+  if (hour > 99) return { ok: false, message: "Hours stay under 100." };
+  if (minute > 59 || second > 59) return { ok: false, message: "Minutes and seconds stay under 60." };
+  const total = hour * 3600 + minute * 60 + second;
+  return { ok: true, seconds: total > 0 ? total : null };
+}
+
+export function parsePaceList(value: string): { ok: true; seconds: number[] } | { ok: false; message: string } {
+  const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+  const seconds: number[] = [];
+  for (const part of parts) {
+    const bits = part.split(":").map((bit) => bit.trim());
+    const parsed = bits.length === 2
+      ? clockFromParts(0, bits[0], bits[1])
+      : bits.length === 3
+        ? clockFromParts(bits[0], bits[1], bits[2])
+        : null;
+    if (!parsed || !parsed.ok || parsed.seconds == null) {
+      return { ok: false, message: "Write each split as minutes:seconds, like 5:30." };
+    }
+    seconds.push(parsed.seconds);
+  }
+  return { ok: true, seconds };
+}
+
 export function kgToDisplay(kg: number, unit: "kg" | "lb"): string {
   const value = unit === "lb" ? kg * 2.2046226218 : kg;
   const rounded = Math.round(value * 10) / 10;

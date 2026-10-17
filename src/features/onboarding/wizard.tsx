@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { TimeFields } from "@/components/time-fields";
 import { goalGroups, goalOptions, sportGroups, sportLabels, type SportSlug } from "@/lib/sports";
+import { clockFromParts } from "@/lib/utils";
 import { saveOnboarding } from "@/server/actions";
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -76,7 +78,25 @@ export function OnboardingWizard() {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : null;
       };
+      const clock = (name: string, label: string) => {
+        const parsed = clockFromParts(text(`${name}Hours`), text(`${name}Minutes`), text(`${name}Seconds`));
+        if (!parsed.ok) return parsed.message ? `${label}: ${parsed.message}` : `${label} could not be read.`;
+        return parsed.seconds;
+      };
       const checked = (name: string) => answers[name] === true;
+      const fiveK = clock("fiveK", "5K personal best");
+      const tenK = clock("tenK", "10K personal best");
+      const half = clock("half", "Half marathon");
+      const marathon = clock("marathon", "Marathon");
+      const swim100 = clock("swim100", "100 m pace");
+      const swim400 = clock("swim400", "400 m pace");
+      const goalTime = training ? clock("goalTime", "Goal time") : null;
+      const clockError = [fiveK, tenK, half, marathon, swim100, swim400, goalTime].find((value) => typeof value === "string");
+      if (typeof clockError === "string") {
+        setError(clockError);
+        setPending(false);
+        return;
+      }
       try {
         const result = await saveOnboarding({
           fullName: text("fullName"),
@@ -108,18 +128,18 @@ export function OnboardingWizard() {
             eventType: text("eventType") || "race",
             date: text("eventDate"),
             distanceM: num("distance"),
-            goalTimeSeconds: num("goalTime"),
+            goalTimeSeconds: goalTime as number | null,
           } : null,
           benchmarks: {
-            fiveKSeconds: num("fiveK"),
-            tenKSeconds: num("tenK"),
-            halfSeconds: num("half"),
-            marathonSeconds: num("marathon"),
+            fiveKSeconds: fiveK as number | null,
+            tenKSeconds: tenK as number | null,
+            halfSeconds: half as number | null,
+            marathonSeconds: marathon as number | null,
             weeklyRunKm: num("runKm"),
             ftpWatts: num("ftp"),
             weeklyBikeKm: num("bikeKm"),
-            swim100Seconds: num("swim100"),
-            swim400Seconds: num("swim400"),
+            swim100Seconds: swim100 as number | null,
+            swim400Seconds: swim400 as number | null,
             weeklySwimM: num("swimM"),
             squatKg: num("squat"),
             benchKg: num("bench"),
@@ -208,10 +228,10 @@ export function OnboardingWizard() {
           <p className="text-sm text-muted">Leave a field blank if you do not know it. Blank means no score, not a guessed score.</p>
           {(sportsPicked.includes("running") || sportsPicked.includes("triathlon")) ? (
             <>
-              <label>5K PB seconds<input name="fiveK" type="number" /></label>
-              <label>10K PB seconds<input name="tenK" type="number" /></label>
-              <label>Half marathon seconds<input name="half" type="number" /></label>
-              <label>Marathon seconds<input name="marathon" type="number" /></label>
+              <TimeFields name="fiveK" legend="5K personal best" />
+              <TimeFields name="tenK" legend="10K personal best" />
+              <TimeFields name="half" legend="Half marathon" />
+              <TimeFields name="marathon" legend="Marathon" />
               <label>Weekly run km<input name="runKm" type="number" step="0.1" /></label>
             </>
           ) : null}
@@ -223,8 +243,8 @@ export function OnboardingWizard() {
           ) : null}
           {(sportsPicked.includes("swimming") || sportsPicked.includes("triathlon")) ? (
             <>
-              <label>100m pace seconds<input name="swim100" type="number" /></label>
-              <label>400m pace seconds<input name="swim400" type="number" /></label>
+              <TimeFields name="swim100" legend="100 m pace" />
+              <TimeFields name="swim400" legend="400 m pace" />
               <label>Weekly swim metres<input name="swimM" type="number" /></label>
             </>
           ) : null}
@@ -269,7 +289,7 @@ export function OnboardingWizard() {
               <label>Type<input name="eventType" defaultValue="triathlon" /></label>
               <label>Date<input name="eventDate" type="date" required /></label>
               <label>Distance metres<input name="distance" type="number" /></label>
-              <label>Goal time seconds<input name="goalTime" type="number" /></label>
+              <TimeFields name="goalTime" legend="Goal time" />
             </>
           ) : null}
         </div>
