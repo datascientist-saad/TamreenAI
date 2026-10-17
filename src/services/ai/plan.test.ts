@@ -208,8 +208,14 @@ test("the ChatGPT prompt contains the saved selections and no secret", () => {
   assert.match(messages.user, /"avoidExercises":\["squat"\]/);
   assert.doesNotMatch(`${messages.system}\n${messages.user}`, /sk-|@/);
   const described = describePlanSource(planInputs(selections, { generator: "chatgpt", model: "gpt-4.1-mini", fallbackReason: null }));
-  assert.equal(described?.eyebrow, "ChatGPT");
+  assert.equal(described?.eyebrow, "TamreenAI");
+  assert.match(described?.detail ?? "", /TamreenAI created this plan/);
+  assert.doesNotMatch(described?.detail ?? "", /ChatGPT/);
   assert.match(described?.chips.join(" ") ?? "", /padel/);
+  const fallback = describePlanSource(planInputs(selections, { generator: "engine", model: null, fallbackReason: "invalid_chatgpt_plan" }));
+  assert.equal(fallback?.eyebrow, "TamreenAI");
+  assert.match(fallback?.detail ?? "", /TamreenAI created this plan/);
+  assert.doesNotMatch(fallback?.detail ?? "", /ChatGPT|training rules/);
 });
 
 test("fenced model JSON still parses", () => {

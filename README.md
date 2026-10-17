@@ -51,7 +51,7 @@ Open `http://localhost:3000`.
 - Accounts, onboarding, plans, logs, recovery, conflicts, and scores are stored in Postgres.
 - Row Level Security uses `user_roles` and relationship tables. JWT user metadata is not an authorization source.
 - Onboarding stores sports, goals, days, equipment, benchmarks, injuries, and the event on the athlete profile. Rebuilding a plan stores that same selection snapshot on the training plan.
-- When `OPENAI_API_KEY` is set, ChatGPT writes the plan from those saved selections. Tamreen still places sessions only on the selected days, drops sports the athlete cannot do, and removes avoided exercises. A red-flag injury never goes to ChatGPT. If the key is missing or the reply cannot be used, the deterministic training rules write the plan instead and the plan records why.
+- When `OPENAI_API_KEY` is set, the server asks the configured model for a plan from those saved selections. Athletes see that plan as created with TamreenAI. Tamreen still places sessions only on the selected days, drops sports the athlete cannot do, and removes avoided exercises. A red-flag injury stays on the recovery rules and is not sent to the model. If the key is missing or the reply cannot be used, the deterministic training rules write the plan instead.
 - Other training decisions stay deterministic and store the factors that produced them. A major change waits for Accept or Keep original.
 - The live camera uses the device camera. Reps are manual. Form scores are not invented. A squat screen can save a clearly labeled placeholder example.
 - Wearable providers are disconnected adapters. They do not fabricate a sync.

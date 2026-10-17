@@ -304,7 +304,7 @@ export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) 
       {error ? <p className="text-sm text-live">{error}</p> : null}
       <div className="flex gap-2">
         {step > 0 ? <button className="btn btn-ghost" type="button" onClick={() => setStep(step - 1)}>Back</button> : null}
-        <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? (step === 6 ? "Saving selections…" : "Saving…") : step === 6 ? "Save and ask ChatGPT" : "Continue"}</button>
+        <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? (step === 6 ? "Creating…" : "Saving…") : step === 6 ? "Create with TamreenAI" : "Continue"}</button>
       </div>
     </form>
   );

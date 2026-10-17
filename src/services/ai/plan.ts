@@ -139,15 +139,11 @@ export function describePlanSource(inputs: unknown): { eyebrow: string; detail: 
   const generator = record.generator === "chatgpt" || record.generator === "engine" ? record.generator : null;
   if (!generator && !selections) return null;
   const reason = typeof record.fallbackReason === "string" ? record.fallbackReason : null;
-  const detail = generator === "chatgpt"
-    ? "ChatGPT wrote this plan from the sports, goal, days, and equipment saved on your profile. That same selection snapshot is stored on this plan."
-    : reason === "red_flag"
-      ? "A red-flag injury is saved on your profile, so this recovery plan was kept on Tamreen's training rules and was not sent to ChatGPT."
-      : reason === "missing_api_key"
-        ? "Your selections are saved. This plan was written with Tamreen's training rules because ChatGPT is not configured on the server."
-        : "Your selections are saved. ChatGPT did not return a plan that matched them, so Tamreen used its training rules.";
+  const detail = reason === "red_flag"
+    ? "A red-flag injury is saved on your profile, so TamreenAI kept this as a recovery plan."
+    : "TamreenAI created this plan from the sports, goal, days, and equipment saved on your profile.";
   return {
-    eyebrow: generator === "chatgpt" ? "ChatGPT" : "Saved selections",
+    eyebrow: "TamreenAI",
     detail,
     chips: selectionChips(selections),
   };
