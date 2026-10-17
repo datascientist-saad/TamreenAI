@@ -50,7 +50,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
         </ul>
       ) : null}
       {(workouts ?? []).length === 0 && view !== "week" ? (
-        <EmptyState title="This view is empty." body="Finish onboarding or rebuild the plan. ChatGPT writes it from the sports, goal, and days saved on your profile." href="/onboarding" action="Complete onboarding" />
+        <EmptyState title="This view is empty." body="Finish onboarding or create a plan. TamreenAI writes it from the sports, goal, and days saved on your profile." href="/onboarding" action="Complete onboarding" />
       ) : (
         <div className="grid gap-4">
           {groupDates(view, from, to, today, workouts ?? []).map((date) => {

@@ -139,15 +139,11 @@ export function describePlanSource(inputs: unknown): { eyebrow: string; detail: 
   const generator = record.generator === "chatgpt" || record.generator === "engine" ? record.generator : null;
   if (!generator && !selections) return null;
   const reason = typeof record.fallbackReason === "string" ? record.fallbackReason : null;
-  const detail = generator === "chatgpt"
-    ? "ChatGPT wrote this plan from the sports, goal, days, and equipment saved on your profile. That same selection snapshot is stored on this plan."
-    : reason === "red_flag"
-      ? "A red-flag injury is saved on your profile, so this recovery plan was kept on Tamreen's training rules and was not sent to ChatGPT."
-      : reason === "missing_api_key"
-        ? "Your selections are saved. This plan was written with Tamreen's training rules because ChatGPT is not configured on the server."
-        : "Your selections are saved. ChatGPT did not return a plan that matched them, so Tamreen used its training rules.";
+  const detail = reason === "red_flag"
+    ? "A red-flag injury is saved on your profile, so TamreenAI kept this as a recovery plan."
+    : "TamreenAI created this plan from the sports, goal, days, and equipment saved on your profile.";
   return {
-    eyebrow: generator === "chatgpt" ? "ChatGPT" : "Saved selections",
+    eyebrow: "TamreenAI",
     detail,
     chips: selectionChips(selections),
   };
@@ -156,26 +152,34 @@ export function describePlanSource(inputs: unknown): { eyebrow: string; detail: 
 export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelections, exercises: LibraryExercise[]) {
   const allowed = allowedSports(ctx);
   const phases = phasesForHorizon(ctx);
+  const days = preferredDays(ctx);
+  const sports = requiredSports(ctx);
+  const sample = exercises.find((exercise) => !avoided(ctx.avoidExercises, exercise.slug, exercise.name));
   const system = [
     "You are Tamreen's training planner.",
     "Write one weekly pattern for each requested phase from the athlete's saved selections.",
+    "Each pattern must contain exactly one session for every preferred day.",
+    "Across that week, include every sport in mustIncludeSports.",
+    "Use the saved goal, experience, minutes, equipment, event, benchmarks, and exercises to avoid.",
+    "Vary the sessions across those sports and days. Do not return a single tempo run or repeat the same session on every day.",
     "Return a single JSON object and nothing else.",
     "Do not invent race results, heart-rate readings, or medical advice.",
     "Use only allowedSports, only exerciseLibrary slugs, and only the athlete's preferred days.",
     "Leave exercises empty for sports other than strength, bodybuilding, and mobility.",
     "Keep every durationMin at or below minutesPerDay.",
+    "Keep each why to one short sentence.",
     "A red-flag injury must not appear here; if one does, return an empty patterns array.",
   ].join(" ");
   const user = JSON.stringify({
-    task: "Generate the training plan JSON from these saved selections.",
+    task: "Generate the training plan JSON from these saved selections. Fill every preferred day and include every mustIncludeSports value.",
     selections: {
       sports: selections.sports,
       primaryGoal: selections.primaryGoal,
       goals: selections.goals,
       customGoal: selections.customGoal,
       experience: selections.experience,
-      preferredDays: selections.preferredDays,
-      dayNames: selections.preferredDays.map((day) => DAY_NAMES[day] ?? String(day)),
+      preferredDays: days,
+      dayNames: days.map((day) => DAY_NAMES[day] ?? String(day)),
       minutesPerDay: selections.minutesPerDay,
       gymAccess: selections.gymAccess,
       poolAccess: selections.poolAccess,
@@ -190,6 +194,7 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
       benchmarks: selections.benchmarks,
     },
     allowedSports: allowed,
+    mustIncludeSports: sports,
     requiredPhases: phases,
     exerciseLibrary: exercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name })),
     jsonShape: {
@@ -199,23 +204,25 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
         {
           phase: phases[0] ?? "base",
           focus: "what this phase is for",
-          sessions: [
-            {
-              weekday: selections.preferredDays[0] ?? 1,
-              sport: allowed[0] ?? "strength",
-              title: "session title",
-              objective: "what the session trains",
+          sessions: days.map((day, index) => {
+            const sport = sports[index % Math.max(sports.length, 1)] ?? allowed[0] ?? "strength";
+            const lift = sport === "strength" || sport === "bodybuilding" || sport === "mobility";
+            return {
+              weekday: day,
+              sport,
+              title: `${DAY_NAMES[day]} ${sport.replaceAll("_", " ")}`,
+              objective: `Train ${sport.replaceAll("_", " ")} for the saved goal`,
               durationMin: Math.min(selections.minutesPerDay, 60),
-              intensity: "moderate",
-              importance: "key",
+              intensity: index === 0 ? "moderate" : "easy",
+              importance: index === 0 ? "key" : "supporting",
               recoveryHours: 24,
-              why: "how this session follows the saved goal",
-              lowerBody: false,
-              quality: false,
+              why: `This ${DAY_NAMES[day]} session follows the saved goal.`,
+              lowerBody: sport !== "swimming",
+              quality: index === 0,
               zones: [{ key: "effort", value: "steady" }],
-              exercises: [],
-            },
-          ],
+              exercises: lift && sample ? [{ slug: sample.slug, sets: 3, reps: "8", targetRpe: 7, restSeconds: 60, tempo: "controlled", technique: "straight", why: "Matches the saved goal." }] : [],
+            };
+          }),
         },
       ],
     },
@@ -227,7 +234,7 @@ export async function resolvePlan(args: {
   ctx: AthleteContext;
   selections: StoredSelections;
   exercises: LibraryExercise[];
-  complete: null | (() => Promise<{ draft: unknown; model: string }>);
+  complete: null | ((repair: string | null) => Promise<{ draft: unknown; model: string }>);
 }): Promise<{ plan: BuiltPlan; source: PlanSource }> {
   if (args.ctx.redFlag || args.selections.redFlag) {
     return { plan: buildPlan(args.ctx), source: { generator: "engine", model: null, fallbackReason: "red_flag" } };
@@ -235,16 +242,48 @@ export async function resolvePlan(args: {
   if (!args.complete) {
     return { plan: buildPlan(args.ctx), source: { generator: "engine", model: null, fallbackReason: "missing_api_key" } };
   }
-  try {
-    const result = await args.complete();
-    const plan = materializeChatPlan(args.ctx, result.draft, args.exercises);
-    if (!plan) {
-      return { plan: buildPlan(args.ctx), source: { generator: "engine", model: null, fallbackReason: "invalid_chatgpt_plan" } };
+  let repair: string | null = null;
+  let sawInvalid = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await args.complete(repair);
+      const plan = materializeChatPlan(args.ctx, result.draft, args.exercises);
+      if (plan && planCoversSelections(plan, args.ctx)) {
+        return { plan, source: { generator: "chatgpt", model: result.model, fallbackReason: null } };
+      }
+      sawInvalid = true;
+      repair = plan ? coverageRepair(plan, args.ctx) : unusableRepair(args.ctx);
+    } catch {
+      repair = unusableRepair(args.ctx);
     }
-    return { plan, source: { generator: "chatgpt", model: result.model, fallbackReason: null } };
-  } catch {
-    return { plan: buildPlan(args.ctx), source: { generator: "engine", model: null, fallbackReason: "chatgpt_unavailable" } };
   }
+  console.error(`Training plan draft was not used. ${(repair ?? "No draft.").slice(0, 300)}`);
+  return {
+    plan: buildPlan(args.ctx),
+    source: { generator: "engine", model: null, fallbackReason: sawInvalid ? "invalid_chatgpt_plan" : "chatgpt_unavailable" },
+  };
+}
+
+export function planCoversSelections(plan: BuiltPlan, ctx: AthleteContext): boolean {
+  const preferred = preferredDays(ctx);
+  const required = requiredSports(ctx);
+  if (!preferred.length || !plan.sessions.length || !required.length) return false;
+  const present = new Set(plan.sessions.map((session) => session.sport));
+  if (required.some((sport) => !present.has(sport))) return false;
+  const weeks = new Map<string, { days: Set<number>; titles: Set<string> }>();
+  for (const session of plan.sessions) {
+    const start = addDays(session.date, -weekOffset(weekday(session.date)));
+    const row = weeks.get(start) ?? { days: new Set<number>(), titles: new Set<string>() };
+    row.days.add(weekday(session.date));
+    row.titles.add(session.title);
+    weeks.set(start, row);
+  }
+  for (const row of weeks.values()) {
+    if (!preferred.every((day) => row.days.has(day))) continue;
+    if (preferred.length > 1 && row.titles.size < 2) continue;
+    return true;
+  }
+  return false;
 }
 
 export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercises: LibraryExercise[]): BuiltPlan | null {
@@ -313,19 +352,19 @@ export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercis
 }
 
 function parseDraft(draft: unknown): { name: string; explanation: string; patterns: Array<DraftPattern & { phase: Phase }> } | null {
-  if (!draft || typeof draft !== "object") return null;
-  const record = draft as { name?: unknown; explanation?: unknown; patterns?: unknown };
-  const name = text(record.name, 80);
-  const explanation = text(record.explanation, 1200);
-  if (!name || !explanation || explanation.length < 20 || !Array.isArray(record.patterns)) return null;
+  const unwrapped = unwrapDraft(draft);
+  if (!unwrapped || typeof unwrapped !== "object") return null;
+  const record = unwrapped as { name?: unknown; explanation?: unknown; focus?: unknown };
+  const name = text(record.name, 80) ?? "Training plan";
+  const explanation = text(record.explanation, 1200) ?? "This plan follows the sports, goal, and days saved on the profile.";
   const patterns: Array<DraftPattern & { phase: Phase }> = [];
-  for (const pattern of record.patterns.slice(0, 5)) {
+  for (const pattern of patternRows(unwrapped).slice(0, 5)) {
     if (!pattern || typeof pattern !== "object") continue;
-    const row = pattern as { phase?: unknown; focus?: unknown; sessions?: unknown };
-    const phase = oneOf(row.phase, PHASES);
-    const focus = text(row.focus, 240);
-    if (!phase || !focus || !Array.isArray(row.sessions)) continue;
-    const sessions = row.sessions.slice(0, 7).flatMap((session) => {
+    const row = pattern as { phase?: unknown; focus?: unknown; sessions?: unknown; workouts?: unknown };
+    const phase = phaseFrom(row.phase) ?? "base";
+    const focus = text(row.focus, 240) ?? text(record.focus, 240) ?? "Training for the saved goal";
+    const listed = Array.isArray(row.sessions) ? row.sessions : Array.isArray(row.workouts) ? row.workouts : [];
+    const sessions = listed.slice(0, 7).flatMap((session) => {
       const parsed = parseSession(session);
       return parsed ? [parsed] : [];
     });
@@ -334,18 +373,42 @@ function parseDraft(draft: unknown): { name: string; explanation: string; patter
   return patterns.length ? { name, explanation, patterns } : null;
 }
 
+function unwrapDraft(draft: unknown): unknown {
+  if (!draft || typeof draft !== "object") return draft;
+  const record = draft as Record<string, unknown>;
+  if (Array.isArray(record.patterns) || Array.isArray(record.sessions) || Array.isArray(record.weeks) || Array.isArray(record.workouts)) return draft;
+  for (const key of ["plan", "training_plan", "trainingPlan", "data", "result"]) {
+    const nested = record[key];
+    if (nested && typeof nested === "object") return nested;
+  }
+  return draft;
+}
+
+function patternRows(draft: object): unknown[] {
+  const record = draft as { patterns?: unknown; weeks?: unknown; sessions?: unknown; workouts?: unknown };
+  if (Array.isArray(record.patterns)) return record.patterns;
+  if (Array.isArray(record.weeks)) return record.weeks;
+  if (record.patterns && typeof record.patterns === "object") {
+    return Object.entries(record.patterns as Record<string, unknown>).map(([phase, value]) => (
+      value && typeof value === "object" ? { phase, ...(value as object) } : { phase, sessions: value }
+    ));
+  }
+  const sessions = Array.isArray(record.sessions) ? record.sessions : Array.isArray(record.workouts) ? record.workouts : null;
+  return sessions ? [{ phase: "base", focus: "Saved selections", sessions }] : [];
+}
+
 function parseSession(value: unknown): DraftSession | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
-  const sport = oneOf(row.sport, SPORTS);
-  const title = text(row.title, 80);
-  const objective = text(row.objective, 180);
-  const why = text(row.why, 400);
-  const durationMin = intIn(row.durationMin, 15, 360);
-  const intensity = oneOf(row.intensity, INTENSITIES);
-  const importance = oneOf(row.importance, ["key", "supporting", "optional"] as const) ?? "supporting";
-  const recoveryHours = intIn(row.recoveryHours, 8, 72);
-  if (!sport || !title || !objective || !why || durationMin == null || !intensity || recoveryHours == null) return null;
+  const sport = sportFrom(row.sport ?? row.type);
+  const title = text(row.title, 80) ?? text(row.name, 80) ?? (sport ? sport.replaceAll("_", " ") : null);
+  const objective = text(row.objective, 180) ?? text(row.description, 180) ?? title;
+  const why = text(row.why, 400) ?? text(row.reason, 400) ?? "This session follows the saved selections.";
+  const durationMin = intIn(row.durationMin ?? row.duration_min ?? row.duration ?? row.minutes, 15, 360) ?? 45;
+  const intensity = intensityFrom(row.intensity) ?? "moderate";
+  const importance = importanceFrom(row.importance);
+  const recoveryHours = recoveryFrom(row.recoveryHours ?? row.recovery_hours ?? row.recovery);
+  if (!sport || !title || !objective || !why) return null;
   const exercises = Array.isArray(row.exercises)
     ? row.exercises.slice(0, 8).flatMap((exercise) => {
       const parsed = parseExercise(exercise);
@@ -353,7 +416,7 @@ function parseSession(value: unknown): DraftSession | null {
     })
     : [];
   return {
-    weekday: intIn(row.weekday, 0, 6),
+    weekday: weekdayFrom(row.weekday ?? row.day),
     sport,
     title,
     objective,
@@ -362,7 +425,7 @@ function parseSession(value: unknown): DraftSession | null {
     importance,
     recoveryHours,
     why,
-    lowerBody: row.lowerBody === true,
+    lowerBody: row.lowerBody === true || row.lower_body === true,
     quality: row.quality === true,
     zones: zonesFrom(row.zones),
     exercises,
@@ -370,17 +433,21 @@ function parseSession(value: unknown): DraftSession | null {
 }
 
 function parseExercise(value: unknown): DraftExercise | null {
+  if (typeof value === "string") {
+    const slug = tokenOf(value);
+    return slug ? { slug, reps: "8", why: "Matches the saved goal.", sets: 3, restSeconds: 60, technique: "straight", targetRpe: 7, tempo: "controlled" } : null;
+  }
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
-  const slug = text(row.slug, 80);
-  const reps = text(row.reps, 20);
-  const why = text(row.why, 240);
-  const sets = intIn(row.sets, 1, 8);
-  const restSeconds = intIn(row.restSeconds, 0, 300);
-  const technique = oneOf(row.technique, ["straight", "superset", "warmup"] as const);
-  const targetRpe = typeof row.targetRpe === "number" && row.targetRpe >= 1 && row.targetRpe <= 10 ? row.targetRpe : null;
+  const slug = tokenOf(row.slug ?? row.name ?? row.exercise);
+  const reps = text(row.reps, 20) ?? (intIn(row.reps, 1, 30) != null ? String(intIn(row.reps, 1, 30)) : null) ?? "8";
+  const why = text(row.why, 240) ?? "Matches the saved goal.";
+  const sets = intIn(row.sets, 1, 8) ?? 3;
+  const restSeconds = intIn(row.restSeconds ?? row.rest_seconds ?? row.rest, 0, 300) ?? 60;
+  const technique = techniqueFrom(row.technique);
+  const targetRpe = intIn(row.targetRpe ?? row.target_rpe ?? row.rpe, 1, 10) ?? 7;
   const tempo = text(row.tempo, 20) ?? "controlled";
-  if (!slug || !reps || !why || sets == null || restSeconds == null || !technique || targetRpe == null) return null;
+  if (!slug) return null;
   return { slug, reps, why, sets, restSeconds, technique, targetRpe, tempo };
 }
 
@@ -397,10 +464,11 @@ function toSession(
   const lift = draft.sport === "strength" || draft.sport === "bodybuilding" || draft.sport === "mobility";
   const exercises = lift
     ? draft.exercises.flatMap((exercise) => {
-      const name = library.get(exercise.slug);
-      if (!name || avoided(ctx.avoidExercises, exercise.slug, name)) return [];
+      const slug = librarySlug(library, exercise.slug);
+      const name = slug ? library.get(slug) : undefined;
+      if (!slug || !name || avoided(ctx.avoidExercises, slug, name)) return [];
       return [{
-        slug: exercise.slug,
+        slug,
         name,
         sets: exercise.sets,
         reps: exercise.reps,
@@ -436,6 +504,162 @@ function toSession(
     zones: draft.zones,
     exercises,
   };
+}
+
+function preferredDays(ctx: AthleteContext): number[] {
+  return [...new Set(ctx.preferredDays.filter((day) => day >= 0 && day <= 6))].sort((a, b) => weekOffset(a) - weekOffset(b));
+}
+
+export function requiredSports(ctx: AthleteContext): Sport[] {
+  const allowed = new Set(allowedSports(ctx));
+  const selected = new Set(ctx.sports);
+  const required: Sport[] = [];
+  const add = (sport: Sport) => {
+    if (allowed.has(sport) && !required.includes(sport)) required.push(sport);
+  };
+  const tri = selected.has("triathlon") || (selected.has("running") && selected.has("cycling") && selected.has("swimming"));
+  if (tri) {
+    add("running");
+    add("cycling");
+    add("swimming");
+  }
+  for (const sport of ["running", "cycling", "swimming", "strength", "bodybuilding", ...COURT_SPORTS] as const) {
+    if (selected.has(sport)) add(sport);
+  }
+  if (!required.length) {
+    for (const sport of allowed) {
+      if (sport !== "mobility" && sport !== "recovery" && sport !== "brick") add(sport);
+    }
+  }
+  return required;
+}
+
+function coverageRepair(plan: BuiltPlan, ctx: AthleteContext): string {
+  const coveredDays = new Set(plan.sessions.map((session) => weekday(session.date)));
+  const missingDays = preferredDays(ctx).filter((day) => !coveredDays.has(day)).map((day) => DAY_NAMES[day]);
+  const present = new Set(plan.sessions.map((session) => session.sport));
+  const missingSports = requiredSports(ctx).filter((sport) => !present.has(sport));
+  return [
+    "The previous plan did not follow the saved selections.",
+    missingDays.length ? `Add a different session on each missing day: ${missingDays.join(", ")}.` : "",
+    missingSports.length ? `Include these sports: ${missingSports.join(", ")}.` : "",
+    "Do not return only a tempo run.",
+  ].filter(Boolean).join(" ");
+}
+
+function unusableRepair(ctx: AthleteContext): string {
+  const days = preferredDays(ctx).map((day) => DAY_NAMES[day]).join(", ");
+  const sports = requiredSports(ctx).join(", ");
+  return `Return one JSON object. Each weekly pattern needs a different session on every preferred day (${days}) and must include these sports (${sports}). Do not return only a tempo run.`;
+}
+
+const SPORT_ALIASES: Record<string, Sport> = {
+  run: "running",
+  runs: "running",
+  jogging: "running",
+  jog: "running",
+  ride: "cycling",
+  bike: "cycling",
+  biking: "cycling",
+  cycle: "cycling",
+  swim: "swimming",
+  gym: "strength",
+  weight: "strength",
+  weights: "strength",
+  weight_training: "strength",
+  strength_training: "strength",
+  lifting: "strength",
+  lift: "strength",
+  resistance: "strength",
+  hypertrophy: "bodybuilding",
+  soccer: "football",
+};
+
+const INTENSITY_ALIASES: Record<string, Intensity> = {
+  zone_1: "recovery",
+  zone_2: "easy",
+  aerobic: "easy",
+  endurance: "easy",
+  conversational: "easy",
+  steady: "moderate",
+  moderate_effort: "moderate",
+  comfortably_hard: "tempo",
+  tempo_run: "tempo",
+  marathon_pace: "tempo",
+  threshold_run: "threshold",
+  sweet_spot: "tempo",
+  hard: "threshold",
+  interval: "vo2",
+  intervals: "vo2",
+  vo2max: "vo2",
+  vo2_max: "vo2",
+  sprint: "vo2",
+  match: "tempo",
+  match_speed: "tempo",
+  practice: "moderate",
+  rest: "recovery",
+};
+
+function sportFrom(value: unknown): Sport | null {
+  const token = tokenOf(value);
+  if (!token) return null;
+  return oneOf(SPORT_ALIASES[token] ?? token, SPORTS);
+}
+
+function intensityFrom(value: unknown): Intensity | null {
+  const token = tokenOf(value);
+  if (!token) return null;
+  return oneOf(INTENSITY_ALIASES[token] ?? token, INTENSITIES);
+}
+
+function phaseFrom(value: unknown): Phase | null {
+  const token = tokenOf(value)?.replace(/_phase$/, "");
+  if (!token) return null;
+  const aliases: Record<string, Phase> = { foundation: "base", accumulation: "base", deload: "recovery" };
+  return oneOf(aliases[token] ?? token, PHASES);
+}
+
+function importanceFrom(value: unknown): DraftSession["importance"] {
+  const token = tokenOf(value);
+  if (token === "key" || token === "primary" || token === "main") return "key";
+  if (token === "optional") return "optional";
+  return "supporting";
+}
+
+function techniqueFrom(value: unknown): DraftExercise["technique"] {
+  const token = tokenOf(value);
+  if (token === "superset" || token === "super_set") return "superset";
+  if (token === "warmup" || token === "warm_up") return "warmup";
+  return "straight";
+}
+
+function weekdayFrom(value: unknown): number | null {
+  if (typeof value === "number" || (typeof value === "string" && /^\d+$/.test(value.trim()))) {
+    return intIn(typeof value === "number" ? value : Number(value), 0, 6);
+  }
+  const token = tokenOf(value);
+  const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const short = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+  const index = token ? names.indexOf(token) : -1;
+  if (index >= 0) return index;
+  const brief = token ? short.indexOf(token.slice(0, 3)) : -1;
+  return brief >= 0 ? brief : null;
+}
+
+function recoveryFrom(value: unknown): number {
+  const parsed = intIn(value, 1, 168);
+  if (parsed == null) return 24;
+  if (parsed < 8) return parsed * 24 <= 72 ? parsed * 24 : 24;
+  return Math.min(parsed, 72);
+}
+
+function librarySlug(library: Map<string, string>, slugOrName: string): string | null {
+  if (library.has(slugOrName)) return slugOrName;
+  const needle = slugOrName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  for (const [slug, name] of library) {
+    if (slug.replaceAll("_", " ") === needle || name.toLowerCase() === needle) return slug;
+  }
+  return library.has(needle.replaceAll(" ", "_")) ? needle.replaceAll(" ", "_") : null;
 }
 
 export function allowedSports(ctx: AthleteContext): Sport[] {
@@ -558,8 +782,16 @@ function text(value: unknown, max: number): string | null {
   return trimmed ? trimmed.slice(0, max) : null;
 }
 
+function tokenOf(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(Math.round(value));
+  if (typeof value !== "string") return null;
+  const token = value.trim().toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return token || null;
+}
+
 function intIn(value: unknown, min: number, max: number): number | null {
-  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+  const match = typeof value === "string" ? value.trim().match(/-?\d+(\.\d+)?/) : null;
+  const parsed = typeof value === "number" ? value : match ? Number(match[0]) : Number.NaN;
   if (!Number.isFinite(parsed)) return null;
   const rounded = Math.round(parsed);
   return rounded >= min && rounded <= max ? rounded : null;
