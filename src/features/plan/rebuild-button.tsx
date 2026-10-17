@@ -31,7 +31,7 @@ export function RebuildPlanButton() {
             });
         }}
       >
-        {pending ? "Rebuilding…" : "Rebuild plan"}
+        {pending ? "Asking ChatGPT…" : "Rebuild with ChatGPT"}
       </button>
       {error ? <p className="text-sm text-live">{error}</p> : null}
     </div>
