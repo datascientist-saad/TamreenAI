@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/services/training/engine.test.ts src/services/live/geometry.test.ts"
+    "test": "tsx --test src/services/training/engine.test.ts src/services/live/geometry.test.ts src/features/demo/fixtures.test.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.21",
