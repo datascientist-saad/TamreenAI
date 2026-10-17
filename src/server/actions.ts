@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect, unstable_rethrow } from "next/navigation";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
   adaptMissedSession,
@@ -43,6 +43,29 @@ async function limit(action: string, maxCalls: number, windowSeconds: number) {
     throw new Error("Too many requests. Wait a moment and try again.");
   }
   return { supabase, user };
+}
+
+type Database = Awaited<ReturnType<typeof requireUser>>["supabase"];
+
+function isRedirect(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const digest = "digest" in error ? error.digest : undefined;
+  if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) return true;
+  return "cause" in error ? isRedirect(error.cause) : false;
+}
+
+function savedMessage(error: unknown, fallback: string) {
+  if (isRedirect(error)) return "Your session expired. Sign in again, then save the plan.";
+  if (error instanceof Error && error.message && !error.message.includes("Minified React error")) return error.message;
+  return fallback;
+}
+
+function safeRevalidate(path: string) {
+  try {
+    revalidatePath(path);
+  } catch {
+    // The plan is already stored. A cache refresh must not turn the save into a failed action.
+  }
 }
 
 const onboardingSchema = z.object({
@@ -121,119 +144,124 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   if (!parsedResult.success) return { ok: false as const, message: onboardingIssue(parsedResult.error) };
   const parsed = parsedResult.data;
   const { supabase, user } = await limit("onboarding", 12, 3600);
-  const { data: sports } = await supabase.from("sports").select("id, slug");
-  const { data: goals } = await supabase.from("goals").select("id, slug");
+  const [{ data: sports }, { data: goals }] = await Promise.all([
+    supabase.from("sports").select("id, slug"),
+    supabase.from("goals").select("id, slug"),
+  ]);
   const sportId = new Map((sports ?? []).map((sport) => [sport.slug, sport.id]));
   const goalId = new Map((goals ?? []).map((goal) => [goal.slug, goal.id]));
-
-  const { error: profileError } = await supabase.from("profiles").update({
-    full_name: parsed.fullName,
-    date_of_birth: parsed.dateOfBirth,
-    sex: parsed.sex,
-  }).eq("id", user.id);
-  if (profileError) throw new Error(profileError.message);
-
-  const { error: athleteError } = await supabase.from("athlete_profiles").update({
-    height_cm: parsed.heightCm,
-    weight_kg: parsed.weightKg,
-    body_fat_pct: parsed.bodyFat,
-    experience_level: parsed.experience,
-    days_available: parsed.preferredDays.length,
-    minutes_per_day: parsed.minutesPerDay,
-    preferred_days: parsed.preferredDays,
-    gym_access: parsed.gymAccess,
-    pool_access: parsed.poolAccess,
-    bike_access: parsed.bikeAccess,
-    reported_5k_seconds: parsed.benchmarks.fiveKSeconds,
-    reported_10k_seconds: parsed.benchmarks.tenKSeconds,
-    reported_half_seconds: parsed.benchmarks.halfSeconds,
-    reported_marathon_seconds: parsed.benchmarks.marathonSeconds,
-    weekly_run_km: parsed.benchmarks.weeklyRunKm,
-    ftp_watts: parsed.benchmarks.ftpWatts,
-    weekly_bike_km: parsed.benchmarks.weeklyBikeKm,
-    swim_100m_seconds: parsed.benchmarks.swim100Seconds,
-    swim_400m_seconds: parsed.benchmarks.swim400Seconds,
-    weekly_swim_m: parsed.benchmarks.weeklySwimM,
-    squat_kg: parsed.benchmarks.squatKg,
-    bench_kg: parsed.benchmarks.benchKg,
-    deadlift_kg: parsed.benchmarks.deadliftKg,
-  }).eq("user_id", user.id);
-  if (athleteError) throw new Error(athleteError.message);
-
   const missingSports = parsed.sports.filter((slug) => !sportId.has(slug));
   if (missingSports.length) {
-    throw new Error(`These sports are not in the catalog yet: ${missingSports.join(", ")}.`);
+    return { ok: false as const, message: `These sports are not in the catalog yet: ${missingSports.join(", ")}.` };
   }
-  await supabase.from("athlete_sports").delete().eq("user_id", user.id);
-  const { error: sportError } = await supabase.from("athlete_sports").insert(parsed.sports.map((slug) => {
-    const id = sportId.get(slug);
-    if (!id) throw new Error(`These sports are not in the catalog yet: ${slug}.`);
-    return {
-      user_id: user.id,
-      sport_id: id,
-      is_primary: slug === parsed.sports[0],
-      experience_level: parsed.experience,
-    };
-  }));
-  if (sportError) throw new Error(sportError.message);
-
   const selectedGoals = [...new Set([parsed.primaryGoal, ...parsed.goals])];
   const missingGoals = selectedGoals.filter((slug) => !goalId.has(slug));
   if (missingGoals.length) {
-    throw new Error(`These goals are not in the catalog yet: ${missingGoals.join(", ")}.`);
-  }
-  await supabase.from("athlete_goals").delete().eq("user_id", user.id);
-  const goalRows = selectedGoals.flatMap((slug) => {
-    const id = goalId.get(slug);
-    return id ? [{
-      user_id: user.id,
-      goal_id: id,
-      is_primary: slug === parsed.primaryGoal,
-      custom_label: slug === "custom" ? parsed.customGoal ?? "Custom goal" : null,
-    }] : [];
-  });
-  if (goalRows.length) {
-    const { error } = await supabase.from("athlete_goals").insert(goalRows);
-    if (error) throw new Error(error.message);
+    return { ok: false as const, message: `These goals are not in the catalog yet: ${missingGoals.join(", ")}.` };
   }
 
-  await supabase.from("injuries").delete().eq("user_id", user.id);
-  if (parsed.injuries.length) {
-    await supabase.from("injuries").insert(parsed.injuries.map((injury) => ({
-      user_id: user.id,
-      status: injury.status,
-      body_area: injury.bodyArea,
-      description: injury.description,
-      exercises_to_avoid: injury.avoid,
-      severity: injury.severity,
-      red_flag: injury.redFlag || injury.severity === "severe",
-    })));
-  }
+  const [profileResult, athleteResult, sportWrite, goalWrite, injuryWrite, eventWrite] = await Promise.all([
+    supabase.from("profiles").update({
+      full_name: parsed.fullName,
+      date_of_birth: parsed.dateOfBirth,
+      sex: parsed.sex,
+    }).eq("id", user.id),
+    supabase.from("athlete_profiles").update({
+      height_cm: parsed.heightCm,
+      weight_kg: parsed.weightKg,
+      body_fat_pct: parsed.bodyFat,
+      experience_level: parsed.experience,
+      days_available: parsed.preferredDays.length,
+      minutes_per_day: parsed.minutesPerDay,
+      preferred_days: parsed.preferredDays,
+      gym_access: parsed.gymAccess,
+      pool_access: parsed.poolAccess,
+      bike_access: parsed.bikeAccess,
+      reported_5k_seconds: parsed.benchmarks.fiveKSeconds,
+      reported_10k_seconds: parsed.benchmarks.tenKSeconds,
+      reported_half_seconds: parsed.benchmarks.halfSeconds,
+      reported_marathon_seconds: parsed.benchmarks.marathonSeconds,
+      weekly_run_km: parsed.benchmarks.weeklyRunKm,
+      ftp_watts: parsed.benchmarks.ftpWatts,
+      weekly_bike_km: parsed.benchmarks.weeklyBikeKm,
+      swim_100m_seconds: parsed.benchmarks.swim100Seconds,
+      swim_400m_seconds: parsed.benchmarks.swim400Seconds,
+      weekly_swim_m: parsed.benchmarks.weeklySwimM,
+      squat_kg: parsed.benchmarks.squatKg,
+      bench_kg: parsed.benchmarks.benchKg,
+      deadlift_kg: parsed.benchmarks.deadliftKg,
+    }).eq("user_id", user.id),
+    (async () => {
+      const { error: clearError } = await supabase.from("athlete_sports").delete().eq("user_id", user.id);
+      if (clearError) return clearError.message;
+      const { error } = await supabase.from("athlete_sports").insert(parsed.sports.map((slug) => ({
+        user_id: user.id,
+        sport_id: sportId.get(slug),
+        is_primary: slug === parsed.sports[0],
+        experience_level: parsed.experience,
+      })));
+      return error?.message ?? null;
+    })(),
+    (async () => {
+      const { error: clearError } = await supabase.from("athlete_goals").delete().eq("user_id", user.id);
+      if (clearError) return clearError.message;
+      const goalRows = selectedGoals.flatMap((slug) => {
+        const id = goalId.get(slug);
+        return id ? [{
+          user_id: user.id,
+          goal_id: id,
+          is_primary: slug === parsed.primaryGoal,
+          custom_label: slug === "custom" ? parsed.customGoal ?? "Custom goal" : null,
+        }] : [];
+      });
+      if (!goalRows.length) return null;
+      const { error } = await supabase.from("athlete_goals").insert(goalRows);
+      return error?.message ?? null;
+    })(),
+    (async () => {
+      const { error: clearError } = await supabase.from("injuries").delete().eq("user_id", user.id);
+      if (clearError) return clearError.message;
+      if (!parsed.injuries.length) return null;
+      const { error } = await supabase.from("injuries").insert(parsed.injuries.map((injury) => ({
+        user_id: user.id,
+        status: injury.status,
+        body_area: injury.bodyArea,
+        description: injury.description,
+        exercises_to_avoid: injury.avoid,
+        severity: injury.severity,
+        red_flag: injury.redFlag || injury.severity === "severe",
+      })));
+      return error?.message ?? null;
+    })(),
+    (async () => {
+      if (!parsed.event) return null;
+      const { error: clearEventError } = await supabase.from("events").delete().eq("owner_user_id", user.id).eq("description", "Training target created during onboarding.");
+      if (clearEventError) return clearEventError.message;
+      const { error } = await supabase.from("events").insert({
+        owner_user_id: user.id,
+        name: parsed.event.name,
+        event_type: parsed.event.eventType,
+        discipline: parsed.event.eventType,
+        starts_on: parsed.event.date,
+        distance_m: parsed.event.distanceM,
+        goal_time_seconds: parsed.event.goalTimeSeconds,
+        description: "Training target created during onboarding.",
+      });
+      return error?.message ?? null;
+    })(),
+  ]);
+  const profileMessage = profileResult.error?.message ?? athleteResult.error?.message ?? sportWrite ?? goalWrite ?? injuryWrite ?? eventWrite;
+  if (profileMessage) return { ok: false as const, message: profileMessage };
 
-  if (parsed.event) {
-    const { error: clearEventError } = await supabase.from("events").delete().eq("owner_user_id", user.id).eq("description", "Training target created during onboarding.");
-    if (clearEventError) return { ok: false as const, message: clearEventError.message };
-    const { error: eventError } = await supabase.from("events").insert({
-      owner_user_id: user.id,
-      name: parsed.event.name,
-      event_type: parsed.event.eventType,
-      discipline: parsed.event.eventType,
-      starts_on: parsed.event.date,
-      distance_m: parsed.event.distanceM,
-      goal_time_seconds: parsed.event.goalTimeSeconds,
-      description: "Training target created during onboarding.",
-    });
-    if (eventError) return { ok: false as const, message: eventError.message };
-  }
-
-  await generatePlan();
+  const written = await writePlan(supabase, user.id);
+  if (!written.ok) return written;
   const { error: doneError } = await supabase.from("profiles").update({ onboarding_completed: true }).eq("id", user.id);
   if (doneError) return { ok: false as const, message: doneError.message };
-  revalidatePath("/home");
+  safeRevalidate("/home");
+  safeRevalidate("/plan");
   return { ok: true as const };
   } catch (error) {
-    unstable_rethrow(error);
-    return { ok: false as const, message: error instanceof Error ? error.message : "The plan could not be saved." };
+    return { ok: false as const, message: savedMessage(error, "The plan could not be saved.") };
   }
 }
 
@@ -289,17 +317,19 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
   };
 }
 
-export async function generatePlan() {
-  const { supabase, user } = await limit("generate_plan", 8, 3600);
-  const ctx = await contextFor(user.id, supabase);
+async function writePlan(supabase: Database, userId: string) {
+  const ctx = await contextFor(userId, supabase);
   const plan = buildPlan(ctx);
   const today = ctx.startDate;
-  await supabase.from("training_plans").update({ status: "archived" }).eq("user_id", user.id).eq("status", "active");
-  const { error: clearError } = await supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", user.id).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null);
-  if (clearError) throw new Error(clearError.message);
+  const [{ error: archiveError }, { error: clearError }] = await Promise.all([
+    supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "active"),
+    supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null),
+  ]);
+  if (archiveError) return { ok: false as const, message: archiveError.message };
+  if (clearError) return { ok: false as const, message: clearError.message };
 
   const { data: created, error } = await supabase.from("training_plans").insert({
-    user_id: user.id,
+    user_id: userId,
     name: plan.name,
     status: "active",
     start_date: plan.startDate,
@@ -308,21 +338,25 @@ export async function generatePlan() {
     inputs: { sports: ctx.sports, minutes: ctx.minutesPerDay, days: ctx.preferredDays },
     explanation: plan.explanation,
   }).select("id").single();
-  if (error || !created) throw new Error(error?.message ?? "Plan was not saved.");
+  if (error || !created) return { ok: false as const, message: error?.message ?? "Plan was not saved." };
 
-  const { data: blocks } = await supabase.from("training_blocks").insert(plan.blocks.map((block) => ({
-    plan_id: created.id,
-    user_id: user.id,
-    phase: block.phase,
-    name: block.name,
-    start_date: block.startDate,
-    end_date: block.endDate,
-    focus: block.focus,
-    sort_order: block.sortOrder,
-  }))).select("id, phase, start_date, end_date");
+  const [{ data: blocks, error: blockError }, { data: library, error: libraryError }] = await Promise.all([
+    supabase.from("training_blocks").insert(plan.blocks.map((block) => ({
+      plan_id: created.id,
+      user_id: userId,
+      phase: block.phase,
+      name: block.name,
+      start_date: block.startDate,
+      end_date: block.endDate,
+      focus: block.focus,
+      sort_order: block.sortOrder,
+    }))).select("id, phase, start_date, end_date"),
+    supabase.from("exercise_library").select("id, slug"),
+  ]);
+  if (blockError) return { ok: false as const, message: blockError.message };
+  if (libraryError) return { ok: false as const, message: libraryError.message };
 
   const blockId = (date: string) => (blocks ?? []).find((block) => date >= block.start_date && date <= block.end_date)?.id ?? null;
-  const { data: library } = await supabase.from("exercise_library").select("id, slug");
   const exerciseId = new Map((library ?? []).map((exercise) => [exercise.slug, exercise.id]));
   const seenSessions = new Set<string>();
   const sessions = plan.sessions.filter((session) => {
@@ -331,10 +365,11 @@ export async function generatePlan() {
     seenSessions.add(key);
     return true;
   });
+  if (!sessions.length) return { ok: false as const, message: "Choose at least one day you can train." };
   const workoutRows = sessions.map((session, index) => ({
     plan_id: created.id,
     block_id: blockId(session.date),
-    user_id: user.id,
+    user_id: userId,
     scheduled_date: session.date,
     sport: session.sport,
     title: session.title,
@@ -350,7 +385,7 @@ export async function generatePlan() {
     why_text: session.why,
   }));
   const { data: workouts, error: workoutError } = await supabase.from("workouts").insert(workoutRows).select("id, structure");
-  if (workoutError) throw new Error(workoutError.message);
+  if (workoutError) return { ok: false as const, message: workoutError.message };
   const byKey = new Map((workouts ?? []).map((workout) => [Number((workout.structure as { clientKey?: number }).clientKey), workout.id]));
   const exerciseRows = sessions.flatMap((session, index) => {
     const workoutId = byKey.get(index);
@@ -368,30 +403,46 @@ export async function generatePlan() {
       why_text: exercise.why,
     }));
   });
-  if (exerciseRows.length) await supabase.from("workout_exercises").insert(exerciseRows);
+  if (exerciseRows.length) {
+    const { error: exerciseError } = await supabase.from("workout_exercises").insert(exerciseRows);
+    if (exerciseError) return { ok: false as const, message: exerciseError.message };
+  }
 
   const conflicts = findConflicts(plan.sessions);
-  if (conflicts.length) {
-    await supabase.from("training_conflicts").insert(conflicts.slice(0, 12).map((conflict) => ({
-      user_id: user.id,
-      workout_a_id: byKey.get(conflict.sessionA) ?? null,
-      workout_b_id: byKey.get(conflict.sessionB) ?? null,
-      severity: conflict.severity,
-      title: conflict.title,
-      explanation: conflict.explanation,
-      recommendation: { factors: conflict.factors },
-    })));
+  await Promise.all([
+    conflicts.length
+      ? supabase.from("training_conflicts").insert(conflicts.slice(0, 12).map((conflict) => ({
+        user_id: userId,
+        workout_a_id: byKey.get(conflict.sessionA) ?? null,
+        workout_b_id: byKey.get(conflict.sessionB) ?? null,
+        severity: conflict.severity,
+        title: conflict.title,
+        explanation: conflict.explanation,
+        recommendation: { factors: conflict.factors },
+      })))
+      : Promise.resolve(),
+    supabase.from("notifications").insert({
+      user_id: userId,
+      kind: "plan",
+      title: "Training plan ready",
+      body: plan.explanation.slice(0, 180),
+      href: "/plan",
+    }),
+  ]);
+  return { ok: true as const, recommendedLoad: recommendedWeeklyLoad(ctx) };
+}
+
+export async function generatePlan() {
+  try {
+    const { supabase, user } = await limit("generate_plan", 8, 3600);
+    const written = await writePlan(supabase, user.id);
+    if (!written.ok) return written;
+    safeRevalidate("/home");
+    safeRevalidate("/plan");
+    return written;
+  } catch (error) {
+    return { ok: false as const, message: savedMessage(error, "The plan could not be rebuilt.") };
   }
-  await supabase.from("notifications").insert({
-    user_id: user.id,
-    kind: "plan",
-    title: "Training plan ready",
-    body: plan.explanation.slice(0, 180),
-    href: "/plan",
-  });
-  revalidatePath("/home");
-  revalidatePath("/plan");
-  return { ok: true, recommendedLoad: recommendedWeeklyLoad(ctx) };
 }
 
 export async function respondToRecommendation(id: string, accept: boolean) {
