@@ -3,16 +3,18 @@ import { PageFrame } from "@/components/page";
 import { DeviceList } from "@/features/settings/devices";
 import { SettingsForm } from "@/features/settings/form";
 import { wearableProviders } from "@/services/wearables/providers";
+import { loadWhoopSnapshot } from "@/services/wearables/whoop-load";
 import { signOut, respondToCoach } from "@/server/actions";
 import { requireUser } from "@/server/guard";
 
 export default async function SettingsPage() {
   const { supabase, user } = await requireUser();
-  const [{ data: settings }, { data: profile }, { data: subscription }, { data: invites }] = await Promise.all([
+  const [{ data: settings }, { data: profile }, { data: subscription }, { data: invites }, whoop] = await Promise.all([
     supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle(),
     supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
     supabase.from("subscriptions").select("plan_code, status, current_period_end").eq("user_id", user.id).maybeSingle(),
     supabase.from("coach_athletes").select("id, status, coach_id").eq("athlete_id", user.id),
+    loadWhoopSnapshot(supabase, user.id, 1),
   ]);
   const notifications = {
     workout: settings?.notify_workout ?? true,
@@ -45,8 +47,12 @@ export default async function SettingsPage() {
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Connected devices and apps</h2>
-        <p className="mb-3 text-sm text-muted">None of these providers are authorized. Tamreen will not show imported workouts.</p>
-        <DeviceList providers={wearableProviders.map((provider) => ({ id: provider.id, name: provider.displayName }))} />
+        <p className="mb-3 text-sm text-muted">WHOOP connects with OAuth and shows recovery, strain, and sleep. The other providers stay disconnected until a real authorization exists.</p>
+        <DeviceList providers={wearableProviders.map((provider) => ({
+          id: provider.id,
+          name: provider.displayName,
+          status: provider.id === "whoop" ? whoop.connection.status : "disconnected",
+        }))} />
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Privacy</h2>

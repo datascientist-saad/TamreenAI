@@ -1,4 +1,5 @@
 import { daysUntil, hourInTimeZone, shiftIsoDate, todayInTimeZone } from "@/lib/utils";
+import { loadWhoopSnapshot } from "@/services/wearables/whoop-load";
 import { requireUser } from "./guard";
 
 export async function loadShell() {
@@ -43,6 +44,7 @@ export async function loadHome() {
     conflicts,
     loads,
     recommendation,
+    whoop,
   ] = await Promise.all([
     shell.supabase
       .from("workouts")
@@ -109,6 +111,7 @@ export async function loadHome() {
       .is("deleted_at", null)
       .limit(1)
       .maybeSingle(),
+    loadWhoopSnapshot(shell.supabase, shell.user.id, 1),
   ]);
   const latestScores = new Map<string, NonNullable<typeof scores.data>[number]>();
   for (const score of scores.data ?? []) {
@@ -128,5 +131,6 @@ export async function loadHome() {
     conflicts: conflicts.data ?? [],
     loads: loads.data ?? [],
     plan: recommendation.data,
+    whoop,
   };
 }

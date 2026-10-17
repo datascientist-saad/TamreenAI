@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { DemoBanner, EmptyState, ExplainList, SafetyBanner } from "@/components/states";
 import { LoadChart } from "@/features/dashboard/load-chart";
+import { WhoopMetrics } from "@/features/whoop/metrics";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
+import type { WhoopMetricView } from "@/services/wearables/whoop";
 
 type TodayWorkout = {
   id: string;
@@ -52,6 +54,7 @@ export type HomeDashboardProps = {
   event: { id: string; event_type: string; name: string; days: number } | null;
   insight: { id: string; title: string; body: string; factors: unknown } | null;
   conflict: { title: string; explanation: string } | null;
+  whoop: { status: string; metrics: WhoopMetricView[] } | null;
 };
 
 export function HomeDashboard({
@@ -68,6 +71,7 @@ export function HomeDashboard({
   event,
   insight,
   conflict,
+  whoop,
 }: HomeDashboardProps) {
   const overall = scores.find((score) => score.dimension === "overall");
   const relevant = scores.filter((score) => score.dimension !== "overall" && score.score != null);
@@ -123,6 +127,17 @@ export function HomeDashboard({
           <Link className="btn btn-ghost mt-4 w-full" href="/recovery">Log recovery</Link>
         </article>
       </section>
+      {whoop ? (
+        <article className="app-card min-w-0 p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold">WHOOP</h2>
+            <Link className="text-sm font-bold text-maroon" href="/more">Manage</Link>
+          </div>
+          <div className="mt-3">
+            <WhoopMetrics metrics={whoop.metrics} compact />
+          </div>
+        </article>
+      ) : null}
       <section className="grid min-w-0 gap-4 md:grid-cols-3">
         <article className="app-card min-w-0 p-4 sm:p-5">
           <p className="eyebrow">Tamreen performance score</p>
