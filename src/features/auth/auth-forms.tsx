@@ -7,12 +7,12 @@ import { createClient } from "@/lib/supabase/browser";
 import { Wordmark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export function LoginForm({ next, googleEnabled = false }: { next?: string; googleEnabled?: boolean }) {
-  return <AuthCard mode="login" nextPath={next} googleEnabled={googleEnabled} />;
+export function LoginForm({ next }: { next?: string }) {
+  return <AuthCard mode="login" nextPath={next} />;
 }
 
-export function SignupForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
-  return <AuthCard mode="signup" googleEnabled={googleEnabled} />;
+export function SignupForm() {
+  return <AuthCard mode="signup" />;
 }
 
 export function ForgotForm() {
@@ -61,13 +61,13 @@ export function ResetForm() {
   );
 }
 
-function AuthCard({ mode, nextPath, googleEnabled }: { mode: "login" | "signup"; nextPath?: string; googleEnabled: boolean }) {
+function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: string }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const title = mode === "login" ? "Sign in" : "Create your athlete account";
   return (
-    <Shell title={title} subtitle={googleEnabled ? "Email and password, or Google." : "Email and password."}>
+    <Shell title={title} subtitle="Email and password, or Google.">
       <form className="grid gap-3" onSubmit={async (event) => {
         event.preventDefault();
         setError("");
@@ -97,11 +97,14 @@ function AuthCard({ mode, nextPath, googleEnabled }: { mode: "login" | "signup";
         {mode === "signup" ? <label>Name<input name="name" required /></label> : null}
         <label>Email<input name="email" type="email" required autoComplete="email" /></label>
         <label>Password<input name="password" type="password" minLength={8} required autoComplete={mode === "login" ? "current-password" : "new-password"} /></label>
-        {error ? <p className="text-sm text-live">{error}</p> : null}
         {notice ? <p className="text-sm">{notice}</p> : null}
         <button className="btn btn-primary" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button>
       </form>
-      {googleEnabled ? <button className="btn btn-ghost mt-3 w-full" type="button" onClick={async () => {
+      <div className="relative my-4 text-center text-xs font-bold uppercase tracking-[0.14em] text-muted">
+        <span className="relative z-10 bg-card px-3">or</span>
+        <span className="absolute inset-x-0 top-1/2 border-t border-line" aria-hidden="true" />
+      </div>
+      <button className="btn btn-ghost w-full" type="button" onClick={async () => {
         setError("");
         const supabase = createClient();
         const { error: authError } = await supabase.auth.signInWithOAuth({
@@ -109,7 +112,8 @@ function AuthCard({ mode, nextPath, googleEnabled }: { mode: "login" | "signup";
           options: { redirectTo: `${window.location.origin}/auth/callback` },
         });
         if (authError) setError(authError.message);
-      }}>Continue with Google</button> : null}
+      }}>Continue with Google</button>
+      {error ? <p className="mt-3 text-sm text-live">{error}</p> : null}
       <p className="mt-4 text-sm text-muted">
         {mode === "login" ? <Link href="/forgot-password">Forgot password</Link> : null}
         {" "}

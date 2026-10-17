@@ -27,8 +27,11 @@ export default async function SettingsPage() {
     <PageFrame eyebrow="Settings" title={profile?.full_name || "Account"}>
       <section className="app-card p-4">
         <h2 className="font-bold">Sports, goals, and availability</h2>
-        <p className="text-sm text-muted">Updating onboarding rebuilds future planned sessions. Completed history stays.</p>
-        <Link className="btn btn-ghost mt-3" href="/onboarding">Edit onboarding</Link>
+        <p className="text-sm text-muted">Profile, goals, and WHOOP are on More. Updating onboarding rebuilds future planned sessions. Completed history stays.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link className="btn btn-ghost" href="/more">Open More</Link>
+          <Link className="btn btn-ghost" href="/onboarding">Edit onboarding</Link>
+        </div>
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Units, notifications, appearance</h2>

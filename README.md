@@ -31,7 +31,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 | events@tamreen.ai | Event admin |
 | admin@tamreen.ai | Super admin |
 
-5. In Supabase Auth, enable Email. Add `http://localhost:3000/auth/callback` to the redirect allow list. Google sign-in stays hidden until you enable the Google provider in Supabase and set `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=true`.
+5. In Supabase Auth, enable Email and Google. Add `http://localhost:3000/auth/callback` to the redirect allow list so Google sign-in can complete.
 6. Install and run:
 
 ```
