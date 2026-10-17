@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/page";
-import { daysUntil, formatClock, todayInTimeZone } from "@/lib/utils";
+import { daysUntil, formatClock, formatPace, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 
 export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -19,13 +19,13 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
   return (
     <PageFrame eyebrow={event.event_type} title={event.name} lede={event.description || "This event anchors the training block."}>
       <p className="metric text-4xl font-bold">{days >= 0 ? `${days} days remaining` : "Completed"}</p>
-      <p className="text-sm text-muted">{event.location} · {event.starts_on}{event.distance_m ? ` · ${event.distance_m} m` : ""}</p>
+      <p className="text-sm text-muted">{event.location} · {event.starts_on}{event.distance_m ? ` · ${event.distance_m} m` : ""}{event.goal_time_seconds ? ` · goal ${formatClock(event.goal_time_seconds)}` : ""}</p>
       {result ? (
         <article className="app-card p-5">
           <p className="eyebrow">Post-event report</p>
           <p className="metric mt-2 text-5xl font-bold">{result.finish_time_seconds ? formatClock(result.finish_time_seconds) : "—"}</p>
           <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-            <div><dt className="text-muted">Pace</dt><dd className="metric">{result.pace_sec_per_km ? `${Math.round(Number(result.pace_sec_per_km))} sec/km` : "—"}</dd></div>
+            <div><dt className="text-muted">Pace</dt><dd className="metric">{result.pace_sec_per_km ? formatPace(Number(result.pace_sec_per_km), "km") : "—"}</dd></div>
             <div><dt className="text-muted">Consistency</dt><dd className="metric">{result.consistency_score ?? "—"}</dd></div>
             <div><dt className="text-muted">Ranking</dt><dd className="metric">{result.ranking ? `${result.ranking}${result.field_size ? ` / ${result.field_size}` : ""}` : "No ranking stored"}</dd></div>
           </dl>

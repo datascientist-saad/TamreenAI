@@ -1,14 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { TimeFields } from "@/components/time-fields";
 import { goalGroups, goalOptions, sportGroups, sportLabels, type SportSlug } from "@/lib/sports";
+import { clockFromParts } from "@/lib/utils";
 import { saveOnboarding } from "@/server/actions";
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+function collectVisible(form: HTMLFormElement) {
+  const values: Record<string, string | boolean> = {};
+  form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea").forEach((control) => {
+    if (!control.name || control.closest(".hidden")) return;
+    if (control instanceof HTMLInputElement && control.type === "checkbox") values[control.name] = control.checked;
+    else values[control.name] = control.value;
+  });
+  return values;
+}
+
 export function OnboardingWizard() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -17,6 +27,11 @@ export function OnboardingWizard() {
   const [primary, setPrimary] = useState("general_hybrid");
   const [preferred, setPreferred] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [training, setTraining] = useState(false);
+  const [gym, setGym] = useState(true);
+  const [pool, setPool] = useState(false);
+  const [bike, setBike] = useState(false);
+  const [redFlag, setRedFlag] = useState(false);
+  const [saved, setSaved] = useState<Record<string, string | boolean>>({});
 
   function toggle(list: string[], value: string, set: (next: string[]) => void) {
     set(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
@@ -42,6 +57,8 @@ export function OnboardingWizard() {
   return (
     <form className="mx-auto grid max-w-xl gap-4 px-4 py-6" onSubmit={async (event) => {
       event.preventDefault();
+      const answers = { ...saved, ...collectVisible(event.currentTarget) };
+      setSaved(answers);
       if (step < 6) {
         if (step === 1 && sportsPicked.length === 0) {
           setError("Choose at least one sport.");
@@ -53,61 +70,94 @@ export function OnboardingWizard() {
       }
       setPending(true);
       setError("");
-      const form = new FormData(event.currentTarget);
-      const num = (name: string) => {
-        const value = String(form.get(name) ?? "");
-        return value === "" ? null : Number(value);
+      const text = (name: string) => {
+        const value = answers[name];
+        return typeof value === "string" ? value : "";
       };
+      const num = (name: string) => {
+        const value = text(name).trim();
+        if (!value) return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      const clock = (name: string, label: string) => {
+        const parsed = clockFromParts(text(`${name}Hours`), text(`${name}Minutes`), text(`${name}Seconds`));
+        if (!parsed.ok) return parsed.message ? `${label}: ${parsed.message}` : `${label} could not be read.`;
+        return parsed.seconds;
+      };
+      if (preferred.length === 0) {
+        setError("Choose at least one day you can train.");
+        setPending(false);
+        return;
+      }
+      const fiveK = clock("fiveK", "5K personal best");
+      const tenK = clock("tenK", "10K personal best");
+      const half = clock("half", "Half marathon");
+      const marathon = clock("marathon", "Marathon");
+      const swim100 = clock("swim100", "100 m pace");
+      const swim400 = clock("swim400", "400 m pace");
+      const goalTime = training ? clock("goalTime", "Goal time") : null;
+      const clockError = [fiveK, tenK, half, marathon, swim100, swim400, goalTime].find((value) => typeof value === "string");
+      if (typeof clockError === "string") {
+        setError(clockError);
+        setPending(false);
+        return;
+      }
       try {
-        await saveOnboarding({
-          fullName: String(form.get("fullName") ?? ""),
-          dateOfBirth: String(form.get("dob") ?? ""),
-          sex: String(form.get("sex") ?? "prefer_not_to_say") as "female" | "male" | "other" | "prefer_not_to_say",
-          heightCm: Number(form.get("height")),
-          weightKg: Number(form.get("weight")),
+        const result = await saveOnboarding({
+          fullName: text("fullName"),
+          dateOfBirth: text("dob"),
+          sex: (text("sex") || "prefer_not_to_say") as "female" | "male" | "other" | "prefer_not_to_say",
+          heightCm: num("height") ?? 175,
+          weightKg: num("weight") ?? 75,
           bodyFat: num("bodyFat"),
-          experience: String(form.get("experience") ?? "intermediate") as "beginner" | "intermediate" | "advanced" | "elite",
+          experience: (text("experience") || "intermediate") as "beginner" | "intermediate" | "advanced" | "elite",
           sports: sportsPicked as SportSlug[],
           primaryGoal: primary,
           goals: goalPicked.includes(primary) ? goalPicked : [primary, ...goalPicked],
-          customGoal: String(form.get("customGoal") ?? ""),
+          customGoal: text("customGoal"),
           preferredDays: preferred,
-          minutesPerDay: Number(form.get("minutes") ?? 60),
-          gymAccess: form.get("gym") === "on",
-          poolAccess: form.get("pool") === "on",
-          bikeAccess: form.get("bike") === "on",
-          injuries: String(form.get("injuryArea") ?? "").trim() ? [{
+          minutesPerDay: num("minutes") ?? 60,
+          gymAccess: gym,
+          poolAccess: pool,
+          bikeAccess: bike,
+          injuries: text("injuryArea").trim() ? [{
             status: "current",
-            bodyArea: String(form.get("injuryArea")),
-            description: String(form.get("injuryNote") ?? ""),
-            avoid: String(form.get("avoid") ?? "").split(",").map((item) => item.trim()).filter(Boolean),
-            severity: String(form.get("severity") ?? "mild") as "mild" | "moderate" | "severe",
-            redFlag: form.get("redFlag") === "on",
+            bodyArea: text("injuryArea"),
+            description: text("injuryNote"),
+            avoid: text("avoid").split(",").map((item) => item.trim()).filter(Boolean),
+            severity: (text("severity") || "mild") as "mild" | "moderate" | "severe",
+            redFlag,
           }] : [],
           event: training ? {
-            name: String(form.get("eventName") ?? ""),
-            eventType: String(form.get("eventType") ?? "race"),
-            date: String(form.get("eventDate") ?? ""),
+            name: text("eventName"),
+            eventType: text("eventType") || "race",
+            date: text("eventDate"),
             distanceM: num("distance"),
-            goalTimeSeconds: num("goalTime"),
+            goalTimeSeconds: goalTime as number | null,
           } : null,
           benchmarks: {
-            fiveKSeconds: num("fiveK"),
-            tenKSeconds: num("tenK"),
-            halfSeconds: num("half"),
-            marathonSeconds: num("marathon"),
+            fiveKSeconds: fiveK as number | null,
+            tenKSeconds: tenK as number | null,
+            halfSeconds: half as number | null,
+            marathonSeconds: marathon as number | null,
             weeklyRunKm: num("runKm"),
             ftpWatts: num("ftp"),
             weeklyBikeKm: num("bikeKm"),
-            swim100Seconds: num("swim100"),
-            swim400Seconds: num("swim400"),
+            swim100Seconds: swim100 as number | null,
+            swim400Seconds: swim400 as number | null,
             weeklySwimM: num("swimM"),
             squatKg: num("squat"),
             benchKg: num("bench"),
             deadliftKg: num("deadlift"),
           },
         });
-        router.push("/home");
+        if (!result.ok) {
+          setError(result.message);
+          setPending(false);
+          return;
+        }
+        window.location.assign("/plan");
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Onboarding could not be saved.");
         setPending(false);
@@ -184,10 +234,10 @@ export function OnboardingWizard() {
           <p className="text-sm text-muted">Leave a field blank if you do not know it. Blank means no score, not a guessed score.</p>
           {(sportsPicked.includes("running") || sportsPicked.includes("triathlon")) ? (
             <>
-              <label>5K PB seconds<input name="fiveK" type="number" /></label>
-              <label>10K PB seconds<input name="tenK" type="number" /></label>
-              <label>Half marathon seconds<input name="half" type="number" /></label>
-              <label>Marathon seconds<input name="marathon" type="number" /></label>
+              <TimeFields name="fiveK" legend="5K personal best" />
+              <TimeFields name="tenK" legend="10K personal best" />
+              <TimeFields name="half" legend="Half marathon" />
+              <TimeFields name="marathon" legend="Marathon" />
               <label>Weekly run km<input name="runKm" type="number" step="0.1" /></label>
             </>
           ) : null}
@@ -199,8 +249,8 @@ export function OnboardingWizard() {
           ) : null}
           {(sportsPicked.includes("swimming") || sportsPicked.includes("triathlon")) ? (
             <>
-              <label>100m pace seconds<input name="swim100" type="number" /></label>
-              <label>400m pace seconds<input name="swim400" type="number" /></label>
+              <TimeFields name="swim100" legend="100 m pace" />
+              <TimeFields name="swim400" legend="400 m pace" />
               <label>Weekly swim metres<input name="swimM" type="number" /></label>
             </>
           ) : null}
@@ -220,9 +270,11 @@ export function OnboardingWizard() {
             ))}
           </div>
           <label>Minutes available each day<input name="minutes" type="number" min={15} max={360} defaultValue={60} /></label>
-          <label className="flex items-center gap-2"><input name="gym" type="checkbox" defaultChecked /> Gym</label>
-          <label className="flex items-center gap-2"><input name="pool" type="checkbox" /> Pool</label>
-          <label className="flex items-center gap-2"><input name="bike" type="checkbox" /> Bike</label>
+          <div className="grid gap-2">
+            <Choice on={gym} label="Gym" onClick={() => setGym((value) => !value)} />
+            <Choice on={pool} label="Pool" onClick={() => setPool((value) => !value)} />
+            <Choice on={bike} label="Bike" onClick={() => setBike((value) => !value)} />
+          </div>
         </div>
       <div className={step === 5 ? "grid gap-3" : "hidden"}>
           <label>Current injury area<input name="injuryArea" placeholder="Leave blank if none" /></label>
@@ -235,17 +287,17 @@ export function OnboardingWizard() {
               <option value="severe">Severe</option>
             </select>
           </label>
-          <label className="flex items-center gap-2"><input name="redFlag" type="checkbox" /> Severe pain, chest pain, fainting, or another reason to stop training</label>
+          <Choice on={redFlag} label="Severe pain, chest pain, fainting, or another reason to stop training" onClick={() => setRedFlag((value) => !value)} />
         </div>
       <div className={step === 6 ? "grid gap-3" : "hidden"}>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={training} onChange={(event) => setTraining(event.target.checked)} /> Are you training for something?</label>
+          <Choice on={training} label="Are you training for something?" onClick={() => setTraining((value) => !value)} />
           {training ? (
             <>
               <label>Event<input name="eventName" required /></label>
               <label>Type<input name="eventType" defaultValue="triathlon" /></label>
               <label>Date<input name="eventDate" type="date" required /></label>
               <label>Distance metres<input name="distance" type="number" /></label>
-              <label>Goal time seconds<input name="goalTime" type="number" /></label>
+              <TimeFields name="goalTime" legend="Goal time" />
             </>
           ) : null}
         </div>
@@ -255,5 +307,21 @@ export function OnboardingWizard() {
         <button className="btn btn-primary" type="submit" disabled={pending}>{step === 6 ? "Save and build plan" : "Continue"}</button>
       </div>
     </form>
+  );
+}
+
+function Choice({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${on ? "border-[#8a1538] bg-[#8a1538] text-white" : "border-line bg-card text-ink"}`}
+    >
+      <span>{label}</span>
+      <span aria-hidden="true" className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${on ? "border-white" : "border-current opacity-40"}`}>
+        {on ? <span className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+      </span>
+    </button>
   );
 }

@@ -143,10 +143,5 @@ function windowFor(
     end.setUTCDate(0);
     return [start, end.toISOString().slice(0, 10)];
   }
-  const date = new Date(`${today}T00:00:00Z`);
-  const monday = new Date(date);
-  monday.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setUTCDate(monday.getUTCDate() + 6);
-  return [monday.toISOString().slice(0, 10), sunday.toISOString().slice(0, 10)];
+  return [today, shiftIsoDate(today, 6)];
 }

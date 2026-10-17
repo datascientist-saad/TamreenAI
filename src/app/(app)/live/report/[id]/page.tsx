@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/page";
+import { formatClock } from "@/lib/utils";
 import { sessionAnalyzer } from "@/services/live/pose";
 import { requireUser } from "@/server/guard";
 
@@ -22,7 +23,7 @@ export default async function LiveReportPage({ params }: { params: Promise<{ id:
   return (
     <PageFrame eyebrow="Workout complete" title={session.exercise_slug.replaceAll("_", " ")} lede={summary.headline}>
       <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Item label="Duration" value={`${session.duration_seconds ?? 0}s`} />
+        <Item label="Duration" value={formatClock(session.duration_seconds ?? 0)} />
         <Item label="Sets" value={String(session.manual_sets ?? 0)} />
         <Item label="Reps" value={String(session.manual_reps ?? 0)} />
         <Item label="Source" value={session.analysis_source} />

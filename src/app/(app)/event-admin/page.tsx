@@ -1,5 +1,6 @@
 import { PageFrame } from "@/components/page";
-import { createEventOrganization, createManagedEvent, recordEventResult } from "@/server/actions";
+import { FinishResultForm } from "@/features/events/forms";
+import { createEventOrganization, createManagedEvent } from "@/server/actions";
 import { requireRole } from "@/server/guard";
 
 export default async function EventAdminPage() {
@@ -44,20 +45,7 @@ export default async function EventAdminPage() {
             <article key={event.id} className="app-card p-4">
               <h3 className="font-bold">{event.name}</h3>
               <p className="text-sm text-muted">{event.starts_on} · {(registrations ?? []).filter((row) => row.event_id === event.id).length} registrations</p>
-              <form action={async (formData) => {
-                "use server";
-                await recordEventResult({
-                  eventId: event.id,
-                  athleteId: String(formData.get("athleteId") || ""),
-                  finishSeconds: Number(formData.get("finish") || 0),
-                  splits: String(formData.get("splits") || "").split(",").map((part) => Number(part.trim())).filter((part) => part > 0),
-                });
-              }} className="mt-3 grid gap-2">
-                <input name="athleteId" placeholder="Athlete id" required />
-                <input name="finish" placeholder="Finish time seconds" required />
-                <input name="splits" placeholder="Km splits in seconds, comma separated" />
-                <button className="btn btn-primary" type="submit">Save result</button>
-              </form>
+              <FinishResultForm eventId={event.id} />
             </article>
           ))}
         </section>

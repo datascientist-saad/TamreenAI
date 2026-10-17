@@ -49,7 +49,6 @@ export function AppShell({
     <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-5 md:flex">
         <Link href="/home" aria-label="Tamreen home"><Wordmark /></Link>
-        <Link href="/plan" className="btn btn-primary">Open plan</Link>
         <nav className="grid min-h-0 gap-1 overflow-y-auto" aria-label="Primary">
           {[...side, ...extra].map(([href, label]) => (
             <Link
