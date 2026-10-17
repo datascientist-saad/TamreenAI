@@ -7,7 +7,6 @@ import {
   adaptMissedSession,
   analyzeRun,
   answerCoach,
-  buildPlan,
   consistencyScore,
   cyclingScore,
   findConflicts,
@@ -26,6 +25,8 @@ import {
   type PlannedSession,
   type Sport,
 } from "@/services/training/engine";
+import { openAIConfigured, requestChatDraft } from "@/services/ai/openai";
+import { planInputs, resolvePlan, type StoredSelections } from "@/services/ai/plan";
 import { sportSlugs } from "@/lib/sports";
 import { todayInTimeZone } from "@/lib/utils";
 import { MIN_POSE_FRAMES } from "@/services/live/geometry";
@@ -266,13 +267,17 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
 }
 
 async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]): Promise<AthleteContext> {
+  return (await loadPlanningContext(userId, supabase)).ctx;
+}
+
+async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]): Promise<{ ctx: AthleteContext; selections: StoredSelections }> {
   const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: event }] = await Promise.all([
     supabase.from("profiles").select("sex").eq("id", userId).single(),
     supabase.from("athlete_profiles").select("*").eq("user_id", userId).single(),
     supabase.from("athlete_sports").select("sports(slug)").eq("user_id", userId),
-    supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", userId),
+    supabase.from("athlete_goals").select("is_primary, custom_label, goals(slug)").eq("user_id", userId),
     supabase.from("injuries").select("body_area, exercises_to_avoid, red_flag, status").eq("user_id", userId),
-    supabase.from("events").select("name, starts_on").eq("owner_user_id", userId).is("deleted_at", null).order("starts_on").limit(1).maybeSingle(),
+    supabase.from("events").select("name, starts_on, distance_m, goal_time_seconds").eq("owner_user_id", userId).is("deleted_at", null).order("starts_on").limit(1).maybeSingle(),
   ]);
   const sportSlugs = (sports ?? []).flatMap((row) => {
     const joined = row.sports as { slug?: string } | { slug?: string }[] | null;
@@ -282,12 +287,16 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
   const goalRows = (goals ?? []).map((row) => {
     const joined = row.goals as { slug?: string } | { slug?: string }[] | null;
     const slug = Array.isArray(joined) ? joined[0]?.slug : joined?.slug;
-    return { slug: slug ?? "general_hybrid", primary: Boolean(row.is_primary) };
+    const customLabel = typeof row.custom_label === "string" && row.custom_label.trim() ? row.custom_label.trim() : null;
+    return { slug: slug ?? "general_hybrid", primary: Boolean(row.is_primary), customLabel };
   });
   const primary = goalRows.find((goal) => goal.primary)?.slug ?? goalRows[0]?.slug ?? "general_hybrid";
   const current = (injuries ?? []).filter((injury) => injury.status === "current");
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
-  return {
+  const avoidExercises = current.flatMap((injury) => injury.exercises_to_avoid ?? []);
+  const injuryAreas = current.map((injury) => injury.body_area);
+  const redFlag = current.some((injury) => injury.red_flag);
+  const ctx: AthleteContext = {
     startDate: today,
     sports: sportSlugs,
     primaryGoal: primary,
@@ -300,9 +309,9 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
     bikeAccess: athlete?.bike_access ?? false,
     eventDate: event?.starts_on ?? null,
     eventName: event?.name ?? null,
-    avoidExercises: current.flatMap((injury) => injury.exercises_to_avoid ?? []),
-    currentInjuryAreas: current.map((injury) => injury.body_area),
-    redFlag: current.some((injury) => injury.red_flag),
+    avoidExercises,
+    currentInjuryAreas: injuryAreas,
+    redFlag,
     weightKg: athlete?.weight_kg ?? null,
     sex: profile?.sex ?? null,
     reported: {
@@ -315,11 +324,84 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
       deadliftKg: athlete?.deadlift_kg,
     },
   };
+  const customGoal = goalRows.find((goal) => goal.slug === "custom")?.customLabel ?? goalRows.find((goal) => goal.customLabel)?.customLabel ?? null;
+  const selections: StoredSelections = {
+    sports: ctx.sports,
+    primaryGoal: ctx.primaryGoal,
+    goals: ctx.goals,
+    customGoal,
+    experience: ctx.experience,
+    preferredDays: ctx.preferredDays,
+    minutesPerDay: ctx.minutesPerDay,
+    gymAccess: ctx.gymAccess,
+    poolAccess: ctx.poolAccess,
+    bikeAccess: ctx.bikeAccess,
+    eventName: ctx.eventName,
+    eventDate: ctx.eventDate,
+    eventDistanceM: finiteNumber(event?.distance_m),
+    goalTimeSeconds: finiteNumber(event?.goal_time_seconds),
+    avoidExercises,
+    injuryAreas,
+    redFlag,
+    sex: ctx.sex,
+    benchmarks: {
+      fiveKSeconds: finiteNumber(athlete?.reported_5k_seconds),
+      tenKSeconds: finiteNumber(athlete?.reported_10k_seconds),
+      halfSeconds: finiteNumber(athlete?.reported_half_seconds),
+      marathonSeconds: finiteNumber(athlete?.reported_marathon_seconds),
+      weeklyRunKm: finiteNumber(athlete?.weekly_run_km),
+      ftpWatts: finiteNumber(athlete?.ftp_watts),
+      weeklyBikeKm: finiteNumber(athlete?.weekly_bike_km),
+      swim100Seconds: finiteNumber(athlete?.swim_100m_seconds),
+      swim400Seconds: finiteNumber(athlete?.swim_400m_seconds),
+      weeklySwimM: finiteNumber(athlete?.weekly_swim_m),
+      squatKg: finiteNumber(athlete?.squat_kg),
+      benchKg: finiteNumber(athlete?.bench_kg),
+      deadliftKg: finiteNumber(athlete?.deadlift_kg),
+      weightKg: finiteNumber(athlete?.weight_kg),
+    },
+  };
+  return { ctx, selections };
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 async function writePlan(supabase: Database, userId: string) {
-  const ctx = await contextFor(userId, supabase);
-  const plan = buildPlan(ctx);
+  const [{ ctx, selections }, { data: library, error: libraryError }] = await Promise.all([
+    loadPlanningContext(userId, supabase),
+    supabase.from("exercise_library").select("id, slug, name"),
+  ]);
+  if (libraryError) return { ok: false as const, message: libraryError.message };
+  const exercises = (library ?? []).flatMap((exercise) => exercise.slug && exercise.name ? [{ slug: exercise.slug, name: exercise.name }] : []);
+  let resolved;
+  try {
+    resolved = await resolvePlan({
+      ctx,
+      selections,
+      exercises,
+      complete: openAIConfigured()
+        ? async () => {
+          try {
+            return await requestChatDraft(ctx, selections, exercises);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "ChatGPT plan generation failed.";
+            console.error(message.replace(/sk-[A-Za-z0-9_-]+/g, "sk-redacted").slice(0, 300));
+            throw error;
+          }
+        }
+        : null,
+    });
+  } catch (error) {
+    return { ok: false as const, message: savedMessage(error, "The plan could not be rebuilt.") };
+  }
+  const plan = resolved.plan;
   const today = ctx.startDate;
   const [{ error: archiveError }, { error: clearError }] = await Promise.all([
     supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "active"),
@@ -335,26 +417,22 @@ async function writePlan(supabase: Database, userId: string) {
     start_date: plan.startDate,
     end_date: plan.endDate,
     primary_goal_slug: ctx.primaryGoal,
-    inputs: { sports: ctx.sports, minutes: ctx.minutesPerDay, days: ctx.preferredDays },
+    inputs: planInputs(selections, resolved.source),
     explanation: plan.explanation,
   }).select("id").single();
   if (error || !created) return { ok: false as const, message: error?.message ?? "Plan was not saved." };
 
-  const [{ data: blocks, error: blockError }, { data: library, error: libraryError }] = await Promise.all([
-    supabase.from("training_blocks").insert(plan.blocks.map((block) => ({
-      plan_id: created.id,
-      user_id: userId,
-      phase: block.phase,
-      name: block.name,
-      start_date: block.startDate,
-      end_date: block.endDate,
-      focus: block.focus,
-      sort_order: block.sortOrder,
-    }))).select("id, phase, start_date, end_date"),
-    supabase.from("exercise_library").select("id, slug"),
-  ]);
+  const { data: blocks, error: blockError } = await supabase.from("training_blocks").insert(plan.blocks.map((block) => ({
+    plan_id: created.id,
+    user_id: userId,
+    phase: block.phase,
+    name: block.name,
+    start_date: block.startDate,
+    end_date: block.endDate,
+    focus: block.focus,
+    sort_order: block.sortOrder,
+  }))).select("id, phase, start_date, end_date");
   if (blockError) return { ok: false as const, message: blockError.message };
-  if (libraryError) return { ok: false as const, message: libraryError.message };
 
   const blockId = (date: string) => (blocks ?? []).find((block) => date >= block.start_date && date <= block.end_date)?.id ?? null;
   const exerciseId = new Map((library ?? []).map((exercise) => [exercise.slug, exercise.id]));
