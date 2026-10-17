@@ -18,8 +18,8 @@ function collectVisible(form: HTMLFormElement) {
   return values;
 }
 
-export function OnboardingWizard() {
-  const [step, setStep] = useState(0);
+export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) {
+  const [step, setStep] = useState(Math.min(Math.max(initialStep, 0), 6));
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [sportsPicked, setSports] = useState<string[]>(["running", "strength"]);
