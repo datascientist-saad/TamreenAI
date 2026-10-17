@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { TimeFields } from "@/components/time-fields";
 import { goalGroups, goalOptions, sportGroups, sportLabels, type SportSlug } from "@/lib/sports";
 import { clockFromParts } from "@/lib/utils";
@@ -20,7 +19,6 @@ function collectVisible(form: HTMLFormElement) {
 }
 
 export function OnboardingWizard() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -29,6 +27,10 @@ export function OnboardingWizard() {
   const [primary, setPrimary] = useState("general_hybrid");
   const [preferred, setPreferred] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [training, setTraining] = useState(false);
+  const [gym, setGym] = useState(true);
+  const [pool, setPool] = useState(false);
+  const [bike, setBike] = useState(false);
+  const [redFlag, setRedFlag] = useState(false);
   const [saved, setSaved] = useState<Record<string, string | boolean>>({});
 
   function toggle(list: string[], value: string, set: (next: string[]) => void) {
@@ -83,7 +85,11 @@ export function OnboardingWizard() {
         if (!parsed.ok) return parsed.message ? `${label}: ${parsed.message}` : `${label} could not be read.`;
         return parsed.seconds;
       };
-      const checked = (name: string) => answers[name] === true;
+      if (preferred.length === 0) {
+        setError("Choose at least one day you can train.");
+        setPending(false);
+        return;
+      }
       const fiveK = clock("fiveK", "5K personal best");
       const tenK = clock("tenK", "10K personal best");
       const half = clock("half", "Half marathon");
@@ -102,8 +108,8 @@ export function OnboardingWizard() {
           fullName: text("fullName"),
           dateOfBirth: text("dob"),
           sex: (text("sex") || "prefer_not_to_say") as "female" | "male" | "other" | "prefer_not_to_say",
-          heightCm: num("height") ?? 0,
-          weightKg: num("weight") ?? 0,
+          heightCm: num("height") ?? 175,
+          weightKg: num("weight") ?? 75,
           bodyFat: num("bodyFat"),
           experience: (text("experience") || "intermediate") as "beginner" | "intermediate" | "advanced" | "elite",
           sports: sportsPicked as SportSlug[],
@@ -111,17 +117,17 @@ export function OnboardingWizard() {
           goals: goalPicked.includes(primary) ? goalPicked : [primary, ...goalPicked],
           customGoal: text("customGoal"),
           preferredDays: preferred,
-          minutesPerDay: num("minutes") ?? 0,
-          gymAccess: checked("gym"),
-          poolAccess: checked("pool"),
-          bikeAccess: checked("bike"),
+          minutesPerDay: num("minutes") ?? 60,
+          gymAccess: gym,
+          poolAccess: pool,
+          bikeAccess: bike,
           injuries: text("injuryArea").trim() ? [{
             status: "current",
             bodyArea: text("injuryArea"),
             description: text("injuryNote"),
             avoid: text("avoid").split(",").map((item) => item.trim()).filter(Boolean),
             severity: (text("severity") || "mild") as "mild" | "moderate" | "severe",
-            redFlag: checked("redFlag"),
+            redFlag,
           }] : [],
           event: training ? {
             name: text("eventName"),
@@ -151,7 +157,7 @@ export function OnboardingWizard() {
           setPending(false);
           return;
         }
-        router.push("/home");
+        window.location.assign("/plan");
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Onboarding could not be saved.");
         setPending(false);
@@ -264,9 +270,11 @@ export function OnboardingWizard() {
             ))}
           </div>
           <label>Minutes available each day<input name="minutes" type="number" min={15} max={360} defaultValue={60} /></label>
-          <label className="flex items-center gap-2"><input name="gym" type="checkbox" defaultChecked /> Gym</label>
-          <label className="flex items-center gap-2"><input name="pool" type="checkbox" /> Pool</label>
-          <label className="flex items-center gap-2"><input name="bike" type="checkbox" /> Bike</label>
+          <div className="grid gap-2">
+            <Choice on={gym} label="Gym" onClick={() => setGym((value) => !value)} />
+            <Choice on={pool} label="Pool" onClick={() => setPool((value) => !value)} />
+            <Choice on={bike} label="Bike" onClick={() => setBike((value) => !value)} />
+          </div>
         </div>
       <div className={step === 5 ? "grid gap-3" : "hidden"}>
           <label>Current injury area<input name="injuryArea" placeholder="Leave blank if none" /></label>
@@ -279,10 +287,10 @@ export function OnboardingWizard() {
               <option value="severe">Severe</option>
             </select>
           </label>
-          <label className="flex items-center gap-2"><input name="redFlag" type="checkbox" /> Severe pain, chest pain, fainting, or another reason to stop training</label>
+          <Choice on={redFlag} label="Severe pain, chest pain, fainting, or another reason to stop training" onClick={() => setRedFlag((value) => !value)} />
         </div>
       <div className={step === 6 ? "grid gap-3" : "hidden"}>
-          <label className="flex items-center gap-2"><input type="checkbox" checked={training} onChange={(event) => setTraining(event.target.checked)} /> Are you training for something?</label>
+          <Choice on={training} label="Are you training for something?" onClick={() => setTraining((value) => !value)} />
           {training ? (
             <>
               <label>Event<input name="eventName" required /></label>
@@ -299,5 +307,21 @@ export function OnboardingWizard() {
         <button className="btn btn-primary" type="submit" disabled={pending}>{step === 6 ? "Save and build plan" : "Continue"}</button>
       </div>
     </form>
+  );
+}
+
+function Choice({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${on ? "border-[#8a1538] bg-[#8a1538] text-white" : "border-line bg-card text-ink"}`}
+    >
+      <span>{label}</span>
+      <span aria-hidden="true" className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${on ? "border-white" : "border-current opacity-40"}`}>
+        {on ? <span className="h-2.5 w-2.5 rounded-full bg-white" /> : null}
+      </span>
+    </button>
   );
 }

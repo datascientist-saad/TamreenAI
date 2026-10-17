@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 import {
   adaptMissedSession,
@@ -116,10 +116,10 @@ function onboardingIssue(error: z.ZodError): string {
 }
 
 export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
+  try {
   const parsedResult = onboardingSchema.safeParse(input);
   if (!parsedResult.success) return { ok: false as const, message: onboardingIssue(parsedResult.error) };
   const parsed = parsedResult.data;
-  try {
   const { supabase, user } = await limit("onboarding", 12, 3600);
   const { data: sports } = await supabase.from("sports").select("id, slug");
   const { data: goals } = await supabase.from("goals").select("id, slug");
@@ -232,6 +232,7 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   revalidatePath("/home");
   return { ok: true as const };
   } catch (error) {
+    unstable_rethrow(error);
     return { ok: false as const, message: error instanceof Error ? error.message : "The plan could not be saved." };
   }
 }
