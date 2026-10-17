@@ -5,10 +5,10 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 export function LoadChart({ points, target }: { points: Array<{ day: string; load: number }>; target: number }) {
   const data = points.map((point) => ({ ...point, target }));
   return (
-    <div className="h-48">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
-          <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+    <div className="mt-4 h-48 w-full min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <AreaChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
+          <XAxis dataKey="day" tick={{ fontSize: 11 }} minTickGap={12} />
           <YAxis hide />
           <Tooltip />
           <Area dataKey="target" stroke="#C9A876" fill="transparent" strokeDasharray="4 4" />
