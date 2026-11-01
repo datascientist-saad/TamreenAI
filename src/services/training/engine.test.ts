@@ -14,6 +14,7 @@ import {
   scoreReadiness,
   sessionLoad,
   strengthExercises,
+  strengthFocus,
   strengthScore,
   swimmingScore,
   type AthleteContext,
@@ -101,8 +102,10 @@ test("onboarding on Saturday still schedules that day", () => {
     bikeAccess: false,
   });
   const today = plan.sessions.filter((item) => item.date === "2026-10-17");
-  assert.equal(today.length, 1);
-  assert.equal(today[0]?.sport, "padel");
+  assert.ok(today.some((item) => item.sport === "padel"));
+  assert.equal(today.some((item) => strengthFocus(item) === "lower"), false);
+  assert.ok(today.some((item) => strengthFocus(item) === "upper"));
+  assert.ok(today.every((item) => item.exercises.some((exercise) => exercise.slug.endsWith("_stretch"))));
 });
 
 test("hybrid plan includes several sports and explains the event", () => {
@@ -114,6 +117,50 @@ test("hybrid plan includes several sports and explains the event", () => {
   assert.ok(sports.has("strength"));
   assert.match(plan.explanation, /Ironman 70.3 Doha/);
   assert.ok(plan.blocks.length >= 2);
+});
+
+test("upper-body strength shares a day with running and not with lower-body lifting", () => {
+  const plan = buildPlan({
+    ...athlete,
+    startDate: "2026-10-05",
+    sports: ["running", "strength"],
+    primaryGoal: "improve_5k",
+    goals: ["improve_5k", "increase_strength"],
+    preferredDays: [1, 3, 6],
+    minutesPerDay: 60,
+    poolAccess: false,
+    bikeAccess: false,
+    eventDate: null,
+    eventName: null,
+  });
+  const byDate = new Map<string, typeof plan.sessions>();
+  for (const session of plan.sessions) {
+    const list = byDate.get(session.date) ?? [];
+    list.push(session);
+    byDate.set(session.date, list);
+  }
+  for (const [date, sessions] of byDate) {
+    const focuses = sessions.map((session) => strengthFocus(session));
+    assert.equal(focuses.includes("upper") && focuses.includes("lower"), false, date);
+    assert.equal(focuses.includes("both"), false, date);
+    const minutes = sessions.reduce((sum, session) => sum + session.durationMin, 0);
+    assert.ok(minutes <= 60, date);
+  }
+  assert.ok([...byDate.values()].some((sessions) => sessions.some((session) => session.sport === "running") && sessions.some((session) => strengthFocus(session) === "upper")));
+  assert.ok(plan.sessions.some((session) => strengthFocus(session) === "lower"));
+  assert.ok(plan.sessions.every((session) => session.exercises.some((exercise) => exercise.slug.endsWith("_stretch"))));
+  const sports = new Set(plan.sessions.map((session) => session.sport));
+  assert.ok(sports.has("running"));
+  assert.ok(sports.has("strength"));
+});
+
+test("same-day upper and lower body is a conflict", () => {
+  const findings = findConflicts([
+    session({ date: "2026-10-06", title: "Upper-body strength", sport: "strength", lowerBody: false }),
+    session({ date: "2026-10-06", title: "Lower-body strength", sport: "strength", lowerBody: true }),
+  ]);
+  assert.equal(findings.length, 1);
+  assert.match(findings[0]?.explanation ?? "", /upper-body/i);
 });
 
 test("strength for runners explains the single-leg hinge", () => {

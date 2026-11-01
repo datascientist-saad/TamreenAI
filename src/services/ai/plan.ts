@@ -4,8 +4,12 @@ import {
   clamp,
   daysBetween,
   phaseForWeek,
+  complementPartner,
   sessionLoad,
+  strengthFocus,
+  stretchLibrary,
   weekday,
+  withSessionStretches,
   type AthleteContext,
   type BuiltPlan,
   type Intensity,
@@ -154,24 +158,36 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
   const phases = phasesForHorizon(ctx);
   const days = preferredDays(ctx);
   const sports = requiredSports(ctx);
-  const sample = exercises.find((exercise) => !avoided(ctx.avoidExercises, exercise.slug, exercise.name));
+  const partner = complementPartner(ctx);
+  const library = [...exercises];
+  for (const stretch of stretchLibrary()) {
+    if (!library.some((exercise) => exercise.slug === stretch.slug)) library.push(stretch);
+  }
+  const sample = library.find((exercise) => !avoided(ctx.avoidExercises, exercise.slug, exercise.name) && !exercise.slug.endsWith("_stretch"));
+  const stretch = library.find((exercise) => exercise.slug.endsWith("_stretch"));
   const system = [
     "You are Tamreen's training planner.",
     "Write one weekly pattern for each requested phase from the athlete's saved selections.",
-    "Each pattern must contain exactly one session for every preferred day.",
-    "Across that week, include every sport in mustIncludeSports.",
+    "Fill every preferred day with training that covers mustIncludeSports and serves the saved goals.",
+    "A day may contain two sessions when they complement each other.",
+    partner
+      ? `Pair upper-body strength with ${partner.replaceAll("_", " ")} on the same day. For a runner, upper-body strength shares the day with running.`
+      : "Put upper-body strength and lower-body strength on different days.",
+    "Never put upper-body strength and lower-body strength on the same day, and never mix upper-body and lower-body lifts in one session.",
+    "Keep lower-body strength on its own day, away from upper-body lifting.",
+    "Include a stretch in every session, including runs, rides, swims, and sport practices.",
     "Use the saved goal, experience, minutes, equipment, event, benchmarks, and exercises to avoid.",
-    "Vary the sessions across those sports and days. Do not return a single tempo run or repeat the same session on every day.",
+    "Vary the sessions. Do not return a single tempo run or repeat the same session on every day.",
     "Return a single JSON object and nothing else.",
     "Do not invent race results, heart-rate readings, or medical advice.",
     "Use only allowedSports, only exerciseLibrary slugs, and only the athlete's preferred days.",
-    "Leave exercises empty for sports other than strength, bodybuilding, and mobility.",
-    "Keep every durationMin at or below minutesPerDay.",
+    "Keep the sum of durationMin on a day at or below minutesPerDay.",
     "Keep each why to one short sentence.",
     "A red-flag injury must not appear here; if one does, return an empty patterns array.",
   ].join(" ");
   const user = JSON.stringify({
-    task: "Generate the training plan JSON from these saved selections. Fill every preferred day and include every mustIncludeSports value.",
+    task: "Generate the training plan JSON from these saved selections. Fill every preferred day, cover every mustIncludeSports value, pair upper-body strength with the complementary sport, and include a stretch in every session.",
+    pairUpperBodyWith: partner,
     selections: {
       sports: selections.sports,
       primaryGoal: selections.primaryGoal,
@@ -196,7 +212,7 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
     allowedSports: allowed,
     mustIncludeSports: sports,
     requiredPhases: phases,
-    exerciseLibrary: exercises.map((exercise) => ({ slug: exercise.slug, name: exercise.name })),
+    exerciseLibrary: library.map((exercise) => ({ slug: exercise.slug, name: exercise.name })),
     jsonShape: {
       name: "short plan name",
       explanation: "why this plan matches the saved selections",
@@ -204,24 +220,40 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
         {
           phase: phases[0] ?? "base",
           focus: "what this phase is for",
-          sessions: days.map((day, index) => {
+          sessions: days.flatMap((day, index) => {
             const sport = sports[index % Math.max(sports.length, 1)] ?? allowed[0] ?? "strength";
-            const lift = sport === "strength" || sport === "bodybuilding" || sport === "mobility";
-            return {
-              weekday: day,
-              sport,
-              title: `${DAY_NAMES[day]} ${sport.replaceAll("_", " ")}`,
-              objective: `Train ${sport.replaceAll("_", " ")} for the saved goal`,
-              durationMin: Math.min(selections.minutesPerDay, 60),
-              intensity: index === 0 ? "moderate" : "easy",
-              importance: index === 0 ? "key" : "supporting",
-              recoveryHours: 24,
-              why: `This ${DAY_NAMES[day]} session follows the saved goal.`,
-              lowerBody: sport !== "swimming",
-              quality: index === 0,
-              zones: [{ key: "effort", value: "steady" }],
-              exercises: lift && sample ? [{ slug: sample.slug, sets: 3, reps: "8", targetRpe: 7, restSeconds: 60, tempo: "controlled", technique: "straight", why: "Matches the saved goal." }] : [],
+            const stretchExercise = stretch
+              ? [{ slug: stretch.slug, sets: 1, reps: "30 sec", targetRpe: 3, restSeconds: 15, tempo: "relaxed", technique: "straight", why: "Stretch for this session." }]
+              : [];
+            const sessionFor = (nextSport: Sport, lowerBody: boolean, title: string) => {
+              const lift = nextSport === "strength" || nextSport === "bodybuilding" || nextSport === "mobility";
+              return {
+                weekday: day,
+                sport: nextSport,
+                title,
+                objective: lowerBody && lift ? "Lower-body strength on its own day" : `Train ${nextSport.replaceAll("_", " ")} for the saved goal`,
+                durationMin: Math.min(Math.round(selections.minutesPerDay / (index === 0 && partner ? 2 : 1)), selections.minutesPerDay),
+                intensity: index === 0 ? "moderate" : "easy",
+                importance: index === 0 ? "key" : "supporting",
+                recoveryHours: 24,
+                why: `This ${DAY_NAMES[day]} session follows the saved goal.`,
+                lowerBody,
+                quality: index === 0 && !lift,
+                zones: [{ key: "effort", value: "steady" }],
+                exercises: [
+                  ...(lift && sample && lowerBody ? [{ slug: sample.slug, sets: 3, reps: "8", targetRpe: 7, restSeconds: 60, tempo: "controlled", technique: "straight", why: "Matches the saved goal." }] : []),
+                  ...stretchExercise,
+                ],
+              };
             };
+            if (index === 0 && partner) {
+              return [
+                sessionFor(partner, partner !== "swimming", `${DAY_NAMES[day]} ${partner.replaceAll("_", " ")}`),
+                sessionFor("strength", false, `${DAY_NAMES[day]} upper-body strength`),
+              ];
+            }
+            const lift = sport === "strength" || sport === "bodybuilding";
+            return [sessionFor(sport, lift, lift ? `${DAY_NAMES[day]} lower-body strength` : `${DAY_NAMES[day]} ${sport.replaceAll("_", " ")}`)];
           }),
         },
       ],
@@ -248,11 +280,15 @@ export async function resolvePlan(args: {
     try {
       const result = await args.complete(repair);
       const plan = materializeChatPlan(args.ctx, result.draft, args.exercises);
-      if (plan && planCoversSelections(plan, args.ctx)) {
+      const covered = plan ? planCoversSelections(plan, args.ctx) : false;
+      const paired = plan ? planRespectsPairing(plan, args.ctx) : false;
+      if (plan && covered && paired) {
         return { plan, source: { generator: "chatgpt", model: result.model, fallbackReason: null } };
       }
       sawInvalid = true;
-      repair = plan ? coverageRepair(plan, args.ctx) : unusableRepair(args.ctx);
+      repair = plan
+        ? [covered ? "" : coverageRepair(plan, args.ctx), paired ? "" : pairingRepair(args.ctx)].filter(Boolean).join(" ")
+        : unusableRepair(args.ctx);
     } catch {
       repair = unusableRepair(args.ctx);
     }
@@ -262,6 +298,32 @@ export async function resolvePlan(args: {
     plan: buildPlan(args.ctx),
     source: { generator: "engine", model: null, fallbackReason: sawInvalid ? "invalid_chatgpt_plan" : "chatgpt_unavailable" },
   };
+}
+
+export function planRespectsPairing(plan: BuiltPlan, ctx: AthleteContext): boolean {
+  const byDate = new Map<string, PlannedSession[]>();
+  for (const session of plan.sessions) {
+    const list = byDate.get(session.date) ?? [];
+    list.push(session);
+    byDate.set(session.date, list);
+  }
+  let paired = false;
+  const partner = complementPartner(ctx);
+  for (const sessions of byDate.values()) {
+    const focuses = sessions.map((session) => strengthFocus(session));
+    if (focuses.includes("both")) return false;
+    if (focuses.includes("upper") && focuses.includes("lower")) return false;
+    if (partner && focuses.includes("upper") && sessions.some((session) => session.sport === partner)) paired = true;
+    const total = sessions.reduce((sum, session) => sum + session.durationMin, 0);
+    if (sessions.length > 1 && total > ctx.minutesPerDay) return false;
+  }
+  if (plan.sessions.some((session) => !session.exercises.some((exercise) => exercise.slug.endsWith("_stretch") || /stretch/i.test(exercise.name)))) {
+    return false;
+  }
+  const hasUpper = plan.sessions.some((session) => strengthFocus(session) === "upper");
+  const hasPartner = partner ? plan.sessions.some((session) => session.sport === partner) : false;
+  if (partner && hasUpper && hasPartner && !paired) return false;
+  return true;
 }
 
 export function planCoversSelections(plan: BuiltPlan, ctx: AthleteContext): boolean {
@@ -326,7 +388,12 @@ export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercis
       currentPhase = phase;
     }
     const pattern = patterns.get(phase) ?? fallback;
-    for (const item of assignDays(pattern.sessions, preferred)) {
+    const assigned = assignDays(pattern.sessions, preferred).map((item) => ({
+      day: item.day,
+      session: { ...item.session },
+    }));
+    fitDraftDays(assigned, ctx.minutesPerDay);
+    for (const item of assigned) {
       const date = addDays(weekStart, weekOffset(item.day));
       if (date < ctx.startDate || date > endDate) continue;
       sessions.push(toSession(ctx, item.session, date, phase, library));
@@ -460,7 +527,7 @@ function toSession(
 ): PlannedSession {
   let intensity = capIntensity(phase, draft.intensity);
   if (ctx.currentInjuryAreas.length && (intensity === "vo2" || intensity === "race" || intensity === "max")) intensity = "tempo";
-  const durationMin = clamp(draft.durationMin, Math.min(20, ctx.minutesPerDay), ctx.minutesPerDay);
+  const durationMin = clamp(draft.durationMin, Math.min(10, ctx.minutesPerDay), ctx.minutesPerDay);
   const lift = draft.sport === "strength" || draft.sport === "bodybuilding" || draft.sport === "mobility";
   const exercises = lift
     ? draft.exercises.flatMap((exercise) => {
@@ -486,7 +553,7 @@ function toSession(
     : draft.sport === "strength" || draft.sport === "bodybuilding"
       ? draft.lowerBody
       : true;
-  return {
+  const session: PlannedSession = {
     date,
     sport: draft.sport,
     title: draft.title,
@@ -504,6 +571,7 @@ function toSession(
     zones: draft.zones,
     exercises,
   };
+  return withSessionStretches(session, ctx.avoidExercises);
 }
 
 function preferredDays(ctx: AthleteContext): number[] {
@@ -532,6 +600,19 @@ export function requiredSports(ctx: AthleteContext): Sport[] {
     }
   }
   return required;
+}
+
+function pairingRepair(ctx: AthleteContext): string {
+  const partner = complementPartner(ctx);
+  return [
+    "Do not put upper-body strength and lower-body strength on the same day.",
+    "Do not mix upper-body and lower-body lifts in one session.",
+    partner
+      ? `Pair upper-body strength with ${partner.replaceAll("_", " ")} on the same day, and keep lower-body strength on a different day.`
+      : "Put upper-body strength and lower-body strength on different days.",
+    "Include a stretch in every session.",
+    "Keep the total minutes on a day within the saved limit.",
+  ].join(" ");
 }
 
 function coverageRepair(plan: BuiltPlan, ctx: AthleteContext): string {
@@ -678,26 +759,72 @@ export function allowedSports(ctx: AthleteContext): Sport[] {
   return [...new Set(sports)];
 }
 
+function fitDraftDays(assigned: Array<{ day: number; session: DraftSession }>, minutesPerDay: number) {
+  const byDay = new Map<number, DraftSession[]>();
+  for (const item of assigned) {
+    const list = byDay.get(item.day) ?? [];
+    list.push(item.session);
+    byDay.set(item.day, list);
+  }
+  for (const group of byDay.values()) {
+    const total = group.reduce((sum, session) => sum + session.durationMin, 0);
+    if (group.length < 2 || total <= minutesPerDay) continue;
+    const floor = Math.min(20, Math.floor(minutesPerDay / group.length));
+    const scale = minutesPerDay / total;
+    for (const session of group) {
+      session.durationMin = clamp(Math.round(session.durationMin * scale), floor, minutesPerDay);
+    }
+    const scaled = group.reduce((sum, session) => sum + session.durationMin, 0);
+    if (scaled <= minutesPerDay) continue;
+    const longest = [...group].sort((a, b) => b.durationMin - a.durationMin)[0];
+    if (longest) longest.durationMin = clamp(longest.durationMin - (scaled - minutesPerDay), floor, minutesPerDay);
+  }
+}
+
+function draftFocus(session: DraftSession) {
+  return strengthFocus({
+    sport: session.sport,
+    lowerBody: session.lowerBody,
+    title: session.title,
+    exercises: session.exercises,
+  });
+}
+
 function assignDays(sessions: DraftSession[], preferred: number[]): Array<{ session: DraftSession; day: number }> {
   const ranked = [...sessions]
     .map((session, index) => ({ session, index }))
     .sort((a, b) => IMPORTANCE_RANK[a.session.importance] - IMPORTANCE_RANK[b.session.importance] || a.index - b.index)
     .map((item) => item.session);
-  const open = new Set(preferred);
   const placed: Array<{ session: DraftSession; day: number }> = [];
+  const clashes = (day: number, session: DraftSession) => {
+    const focus = draftFocus(session);
+    if (focus === "both") return true;
+    const count = placed.filter((item) => item.day === day).length;
+    if (count >= 2) return true;
+    if (!focus) return false;
+    return placed.some((item) => {
+      if (item.day !== day) return false;
+      const other = draftFocus(item.session);
+      return other != null && other !== focus;
+    });
+  };
   const waiting: DraftSession[] = [];
   for (const session of ranked) {
-    if (session.weekday != null && open.has(session.weekday)) {
-      open.delete(session.weekday);
+    if (draftFocus(session) === "both") continue;
+    if (session.weekday != null && preferred.includes(session.weekday) && !clashes(session.weekday, session)) {
       placed.push({ session, day: session.weekday });
       continue;
     }
     waiting.push(session);
   }
-  const remaining = [...open].sort((a, b) => weekOffset(a) - weekOffset(b));
-  waiting.slice(0, remaining.length).forEach((session, index) => {
-    placed.push({ session, day: remaining[index] });
-  });
+  for (const session of waiting) {
+    if (draftFocus(session) === "both") continue;
+    const empty = preferred.find((day) => !clashes(day, session) && !placed.some((item) => item.day === day));
+    const shared = preferred.find((day) => !clashes(day, session));
+    const day = empty ?? shared;
+    if (day == null) continue;
+    placed.push({ session, day });
+  }
   return placed;
 }
 

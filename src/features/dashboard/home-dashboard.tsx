@@ -95,7 +95,7 @@ export function HomeDashboard({
         <article className="app-card min-w-0 p-4 sm:p-5">
           <h2 className="text-lg font-bold">Today&apos;s training</h2>
           {todayWorkouts.length === 0 ? (
-            <EmptyState title="Nothing is scheduled." body="Finish onboarding or open the plan to generate the week." href="/onboarding" action="Set up training" />
+            <EmptyState title="Nothing is scheduled today." body="Today is open. The rest of the week is on your plan." href="/plan" action="Open plan" />
           ) : (
             <ul className="mt-4 grid gap-3">
               {todayWorkouts.map((workout) => (

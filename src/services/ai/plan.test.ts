@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sessionLoad, weekday, type AthleteContext } from "@/services/training/engine";
+import { sessionLoad, strengthFocus, weekday, type AthleteContext } from "@/services/training/engine";
 import { readModelJson } from "./openai";
 import {
   chatPlanMessages,
@@ -8,6 +8,7 @@ import {
   materializeChatPlan,
   planCoversSelections,
   planInputs,
+  planRespectsPairing,
   resolvePlan,
   type StoredSelections,
 } from "./plan";
@@ -117,13 +118,28 @@ function draft() {
           {
             weekday: 1,
             sport: "strength",
-            title: "Strength support",
+            title: "Lower-body strength",
+            objective: "Single-leg strength away from the padel day",
+            durationMin: 40,
+            intensity: "moderate",
+            importance: "supporting",
+            recoveryHours: 36,
+            why: "Lower-body lifting stays off the padel day.",
+            lowerBody: true,
+            quality: false,
+            zones: [],
+            exercises: [],
+          },
+          {
+            weekday: 6,
+            sport: "strength",
+            title: "Upper-body strength",
             objective: "Trunk and upper body that leave the legs for padel",
-            durationMin: 50,
+            durationMin: 30,
             intensity: "moderate",
             importance: "supporting",
             recoveryHours: 24,
-            why: "Squat variations are on the avoid list, so the strength day uses a plank instead.",
+            why: "Upper-body work shares the padel day.",
             lowerBody: false,
             quality: false,
             zones: { note: "RPE 7" },
@@ -150,11 +166,14 @@ test("ChatGPT draft is placed only on saved days and drops disallowed work", () 
   assert.equal(plan?.sessions.some((session) => session.date === "2026-10-17" && session.sport === "padel"), true);
   const padel = plan?.sessions.find((session) => session.sport === "padel" && session.phase === "taper");
   assert.equal(padel?.intensity, "threshold");
-  assert.equal(padel?.durationMin, 60);
-  assert.equal(padel?.expectedLoad, sessionLoad(60, "threshold", "padel"));
+  assert.ok(padel && padel.durationMin <= 60);
+  assert.equal(padel?.expectedLoad, sessionLoad(padel?.durationMin ?? 0, "threshold", "padel"));
   assert.equal(padel?.zones.effort, "match speed");
-  const strength = plan?.sessions.find((session) => session.sport === "strength");
-  assert.deepEqual(strength?.exercises.map((exercise) => exercise.slug), ["plank"]);
+  const strength = plan?.sessions.find((session) => session.title === "Upper-body strength");
+  assert.ok(strength?.exercises.some((exercise) => exercise.slug === "plank"));
+  assert.equal(strength?.exercises.some((exercise) => exercise.slug === "back_squat"), false);
+  assert.ok(strength?.exercises.some((exercise) => exercise.slug.endsWith("_stretch")));
+  assert.equal(plan ? planRespectsPairing(plan, athlete) : false, true);
   assert.equal(plan?.sessions.some((session) => session.structure.source !== "chatgpt"), false);
   const visible = plan?.sessions.filter((session) => session.date >= "2026-10-17" && session.date <= "2026-10-23") ?? [];
   const visibleSports = new Set(visible.map((session) => session.sport));
@@ -215,6 +234,9 @@ test("the ChatGPT prompt contains the saved selections and no secret", () => {
   assert.match(messages.user, /"avoidExercises":\["squat"\]/);
   assert.match(messages.user, /mustIncludeSports/);
   assert.match(messages.system, /every preferred day/);
+  assert.match(messages.system, /upper-body strength/);
+  assert.match(messages.system, /stretch/);
+  assert.match(messages.user, /pairUpperBodyWith/);
   assert.match(messages.user, /"weekday":1/);
   assert.match(messages.user, /"weekday":6/);
   assert.doesNotMatch(`${messages.system}\n${messages.user}`, /sk-|@/);
@@ -250,7 +272,8 @@ test("a loose draft still schedules every saved day and sport", () => {
   assert.ok(visible.some((session) => session.sport === "padel" && session.title === "Point play"));
   assert.ok(visible.some((session) => session.sport === "strength"));
   const strength = plan?.sessions.find((session) => session.sport === "strength");
-  assert.deepEqual(strength?.exercises.map((exercise) => exercise.slug), ["plank"]);
+  assert.ok(strength?.exercises.some((exercise) => exercise.slug === "plank"));
+  assert.ok(strength?.exercises.some((exercise) => exercise.slug.endsWith("_stretch")));
 });
 
 test("a single tempo run is replaced by the saved sports and days", async () => {
@@ -307,9 +330,24 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
               {
                 weekday: 1,
                 sport: "strength",
+                title: "Lower-body strength",
+                objective: "Lower-body strength away from the run",
+                durationMin: 40,
+                intensity: "moderate",
+                importance: "supporting",
+                recoveryHours: 36,
+                why: "Lower-body lifting stays on its own day.",
+                lowerBody: true,
+                quality: false,
+                zones: [],
+                exercises: [],
+              },
+              {
+                weekday: 6,
+                sport: "strength",
                 title: "Strength support",
                 objective: "Upper body that leaves the legs for running",
-                durationMin: 45,
+                durationMin: 30,
                 intensity: "moderate",
                 importance: "supporting",
                 recoveryHours: 24,
@@ -324,7 +362,7 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
                 sport: "running",
                 title: "Easy run",
                 objective: "Aerobic running for the 5K goal",
-                durationMin: 40,
+                durationMin: 30,
                 intensity: "easy",
                 importance: "key",
                 recoveryHours: 24,
@@ -348,6 +386,10 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
   assert.ok(visible.some((session) => session.sport === "running" && session.title === "Easy run"));
   assert.ok(visible.some((session) => session.sport === "strength" && session.title === "Strength support"));
   assert.equal(visible.some((session) => session.title === "Tempo run"), false);
+  const paired = visible.filter((session) => session.date === visible.find((item) => item.title === "Easy run")?.date);
+  assert.ok(paired.some((session) => session.sport === "running"));
+  assert.ok(paired.some((session) => strengthFocus(session) === "upper"));
+  assert.equal(paired.some((session) => strengthFocus(session) === "lower"), false);
 });
 
 test("fenced model JSON still parses", () => {
