@@ -27,6 +27,7 @@ export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) 
   const [primary, setPrimary] = useState("general_hybrid");
   const [preferred, setPreferred] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [training, setTraining] = useState(false);
+  const [doubles, setDoubles] = useState<boolean | null>(null);
   const [gym, setGym] = useState(true);
   const [pool, setPool] = useState(false);
   const [bike, setBike] = useState(false);
@@ -90,6 +91,11 @@ export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) 
         setPending(false);
         return;
       }
+      if (doubles === null) {
+        setError("Say whether you are comfortable with more than one workout on the same day.");
+        setPending(false);
+        return;
+      }
       const fiveK = clock("fiveK", "5K personal best");
       const tenK = clock("tenK", "10K personal best");
       const half = clock("half", "Half marathon");
@@ -118,6 +124,7 @@ export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) 
           customGoal: text("customGoal"),
           preferredDays: preferred,
           minutesPerDay: num("minutes") ?? 60,
+          multipleSessionsPerDay: doubles === true,
           gymAccess: gym,
           poolAccess: pool,
           bikeAccess: bike,
@@ -290,6 +297,12 @@ export function OnboardingWizard({ initialStep = 0 }: { initialStep?: number }) 
           <Choice on={redFlag} label="Severe pain, chest pain, fainting, or another reason to stop training" onClick={() => setRedFlag((value) => !value)} />
         </div>
       <div className={step === 6 ? "grid gap-3" : "hidden"}>
+          <fieldset className="grid gap-2">
+            <legend className="font-bold">Are you comfortable with more than one workout on the same day?</legend>
+            <p className="text-sm text-muted">Yes means some days can have two sessions, so every sport you picked still fits. No means one workout a day, and any sport that does not fit rotates through the plan.</p>
+            <Choice on={doubles === true} label="Yes — two workouts on some days" onClick={() => setDoubles(true)} />
+            <Choice on={doubles === false} label="No — one workout a day" onClick={() => setDoubles(false)} />
+          </fieldset>
           <Choice on={training} label="Are you training for something?" onClick={() => setTraining((value) => !value)} />
           {training ? (
             <>

@@ -1,5 +1,6 @@
 import {
   addDays,
+  balanceDoubledDays,
   buildPlan,
   clamp,
   daysBetween,
@@ -56,6 +57,7 @@ export interface StoredSelections {
   avoidExercises: string[];
   injuryAreas: string[];
   redFlag: boolean;
+  multipleSessionsPerDay?: boolean;
   sex: string | null;
   benchmarks: {
     fiveKSeconds: number | null;
@@ -158,8 +160,10 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
   const system = [
     "You are Tamreen's training planner.",
     "Write one weekly pattern for each requested phase from the athlete's saved selections.",
-    "Each pattern must contain exactly one session for every preferred day.",
-    "Across that week, include every sport in mustIncludeSports.",
+    ctx.multipleSessionsPerDay
+      ? "The athlete is comfortable with two workouts on the same day. Put one session on every preferred day, and add a second session on a day only when that is needed to include every sport in mustIncludeSports. Never put more than two sessions on one day. Never pair two hard lower-body sessions on the same day. The two durations on a doubled day must add up to minutesPerDay or less."
+      : "Each pattern must contain exactly one session for every preferred day. Do not schedule two sessions on the same day. If mustIncludeSports has more sports than preferred days, keep one session on every preferred day and rotate the extra sports so each sport still appears in the plan.",
+    "Across that week, include every sport in mustIncludeSports. Bodybuilding stays a separate sport from strength, with its own hypertrophy sessions, even when strength or triathlon is also selected.",
     "Use the saved goal, experience, minutes, equipment, event, benchmarks, and exercises to avoid.",
     "Vary the sessions across those sports and days. Do not return a single tempo run or repeat the same session on every day.",
     "Return a single JSON object and nothing else.",
@@ -181,6 +185,7 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
       preferredDays: days,
       dayNames: days.map((day) => DAY_NAMES[day] ?? String(day)),
       minutesPerDay: selections.minutesPerDay,
+      multipleSessionsPerDay: ctx.multipleSessionsPerDay === true,
       gymAccess: selections.gymAccess,
       poolAccess: selections.poolAccess,
       bikeAccess: selections.bikeAccess,
@@ -326,7 +331,7 @@ export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercis
       currentPhase = phase;
     }
     const pattern = patterns.get(phase) ?? fallback;
-    for (const item of assignDays(pattern.sessions, preferred)) {
+    for (const item of assignDays(pattern.sessions, preferred, ctx.multipleSessionsPerDay === true)) {
       const date = addDays(weekStart, weekOffset(item.day));
       if (date < ctx.startDate || date > endDate) continue;
       sessions.push(toSession(ctx, item.session, date, phase, library));
@@ -347,7 +352,7 @@ export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercis
     startDate: ctx.startDate,
     endDate,
     blocks,
-    sessions,
+    sessions: balanceDoubledDays(sessions, ctx.minutesPerDay),
   };
 }
 
@@ -665,36 +670,39 @@ function librarySlug(library: Map<string, string>, slugOrName: string): string |
 export function allowedSports(ctx: AthleteContext): Sport[] {
   const selected = new Set(ctx.sports);
   const tri = selected.has("triathlon") || (selected.has("running") && selected.has("cycling") && selected.has("swimming"));
-  const court = COURT_SPORTS.filter((sport) => selected.has(sport));
   const sports: Sport[] = ["mobility", "recovery"];
-  const lift = ctx.gymAccess && (selected.has("strength") || selected.has("bodybuilding") || tri || selected.has("running") || selected.has("cycling") || selected.has("swimming") || court.length > 0);
-  if (lift) sports.push(selected.has("bodybuilding") && !selected.has("strength") && !tri ? "bodybuilding" : "strength");
-  if (ctx.gymAccess && selected.has("bodybuilding") && selected.has("strength")) sports.push("bodybuilding");
+  if (selected.has("strength")) sports.push("strength");
+  if (selected.has("bodybuilding")) sports.push("bodybuilding");
   if (selected.has("running") || tri) sports.push("running");
   if ((selected.has("cycling") || tri) && (ctx.bikeAccess || selected.has("cycling") || tri)) sports.push("cycling");
   if (ctx.poolAccess && (selected.has("swimming") || tri)) sports.push("swimming");
-  if (tri && ctx.bikeAccess && (selected.has("running") || tri)) sports.push("brick");
-  sports.push(...court);
+  if (tri && (ctx.bikeAccess || selected.has("cycling") || tri) && (selected.has("running") || tri)) sports.push("brick");
+  sports.push(...COURT_SPORTS.filter((sport) => selected.has(sport)));
   return [...new Set(sports)];
 }
 
-function assignDays(sessions: DraftSession[], preferred: number[]): Array<{ session: DraftSession; day: number }> {
+function assignDays(sessions: DraftSession[], preferred: number[], doubles: boolean): Array<{ session: DraftSession; day: number }> {
+  const cap = doubles ? 2 : 1;
+  const counts = new Map<number, number>(preferred.map((day) => [day, 0]));
   const ranked = [...sessions]
     .map((session, index) => ({ session, index }))
     .sort((a, b) => IMPORTANCE_RANK[a.session.importance] - IMPORTANCE_RANK[b.session.importance] || a.index - b.index)
     .map((item) => item.session);
-  const open = new Set(preferred);
   const placed: Array<{ session: DraftSession; day: number }> = [];
   const waiting: DraftSession[] = [];
   for (const session of ranked) {
-    if (session.weekday != null && open.has(session.weekday)) {
-      open.delete(session.weekday);
-      placed.push({ session, day: session.weekday });
+    const day = session.weekday;
+    if (day != null && counts.has(day) && (counts.get(day) ?? 0) < cap) {
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+      placed.push({ session, day });
       continue;
     }
     waiting.push(session);
   }
-  const remaining = [...open].sort((a, b) => weekOffset(a) - weekOffset(b));
+  const remaining = preferred
+    .slice()
+    .sort((a, b) => weekOffset(a) - weekOffset(b))
+    .flatMap((day) => Array.from({ length: cap - (counts.get(day) ?? 0) }, () => day));
   waiting.slice(0, remaining.length).forEach((session, index) => {
     placed.push({ session, day: remaining[index] });
   });
@@ -764,6 +772,8 @@ function selectionChips(selections: Partial<StoredSelections> | null): string[] 
     chips.push(days.length === 7 ? "Every day" : days.map((day) => DAY_NAMES[day] ?? String(day)).join(" "));
   }
   if (typeof selections.minutesPerDay === "number") chips.push(`${selections.minutesPerDay} min`);
+  if (selections.multipleSessionsPerDay === true) chips.push("Two workouts a day");
+  if (selections.multipleSessionsPerDay === false) chips.push("One workout a day");
   if (typeof selections.eventName === "string" && selections.eventName) chips.push(selections.eventName);
   return chips;
 }

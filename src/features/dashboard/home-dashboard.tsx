@@ -217,13 +217,13 @@ function WeekStrip({
           return (
             <Link
               key={date}
-              href={first ? `/train/${first.id}` : "/plan"}
+              href={rows.length > 1 ? `/plan#${date}` : first ? `/train/${first.id}` : "/plan"}
               className={`w-36 shrink-0 snap-start rounded-2xl border px-3 py-3 sm:w-40 ${date === today ? "border-maroon bg-maroon text-white" : "border-line bg-paper"}`}
             >
               <span className="text-xs font-bold uppercase tracking-wide">{date === today ? "Today" : label}</span>
-              <span className="mt-1 line-clamp-2 block min-h-10 font-bold leading-tight">{first ? first.title : "Rest"}</span>
+              <span className="mt-1 line-clamp-3 block min-h-10 font-bold leading-tight">{rows.length ? rows.map((row) => row.title).join(" + ") : "Rest"}</span>
               <span className={`mt-1 block text-xs ${date === today ? "text-white/80" : "text-muted"}`}>
-                {first ? `${first.duration_min ?? "—"} min${rows.length > 1 ? ` · +${rows.length - 1}` : ""}` : "Open plan"}
+                {rows.length ? `${rows.reduce((sum, row) => sum + (row.duration_min ?? 0), 0)} min` : "Open plan"}
               </span>
             </Link>
           );
