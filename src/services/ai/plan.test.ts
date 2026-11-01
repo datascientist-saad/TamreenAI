@@ -3,11 +3,13 @@ import test from "node:test";
 import { sessionLoad, weekday, type AthleteContext } from "@/services/training/engine";
 import { readModelJson } from "./openai";
 import {
+  allowedSports,
   chatPlanMessages,
   describePlanSource,
   materializeChatPlan,
   planCoversSelections,
   planInputs,
+  requiredSports,
   resolvePlan,
   type StoredSelections,
 } from "./plan";
@@ -348,6 +350,26 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
   assert.ok(visible.some((session) => session.sport === "running" && session.title === "Easy run"));
   assert.ok(visible.some((session) => session.sport === "strength" && session.title === "Strength support"));
   assert.equal(visible.some((session) => session.title === "Tempo run"), false);
+});
+
+test("bodybuilding stays allowed beside triathlon and strength", () => {
+  const hybrid: AthleteContext = {
+    ...athlete,
+    sports: ["padel", "bodybuilding", "cycling", "strength", "swimming", "triathlon", "running"],
+    poolAccess: true,
+    bikeAccess: true,
+    gymAccess: true,
+  };
+  const allowed = allowedSports(hybrid);
+  const required = requiredSports(hybrid);
+  assert.ok(allowed.includes("bodybuilding"));
+  assert.ok(allowed.includes("strength"));
+  assert.ok(required.includes("bodybuilding"));
+  assert.ok(required.includes("strength"));
+  assert.ok(required.includes("padel"));
+  const messages = chatPlanMessages(hybrid, selections, library);
+  assert.match(messages.system, /Bodybuilding stays a separate sport/);
+  assert.match(messages.user, /"multipleSessionsPerDay":false/);
 });
 
 test("fenced model JSON still parses", () => {
