@@ -492,6 +492,31 @@ const EXERCISE_SEEDS: Record<string, ExerciseSeed> = {
     name: "Walking lunge",
     why: "Trains each leg on its own, which matches the single-leg demand of running.",
   },
+  hip_flexor_stretch: {
+    slug: "hip_flexor_stretch",
+    name: "Half-kneeling hip flexor stretch",
+    why: "Restores hip extension so the next run, ride, or sport session starts from a usable stride.",
+  },
+  hamstring_stretch: {
+    slug: "hamstring_stretch",
+    name: "Supine hamstring stretch",
+    why: "Eases the posterior chain after hinging, running, or a long time on the bike.",
+  },
+  calf_stretch: {
+    slug: "calf_stretch",
+    name: "Standing calf stretch",
+    why: "Gives the calf and Achilles the range they use on every stride.",
+  },
+  chest_stretch: {
+    slug: "chest_stretch",
+    name: "Doorway chest stretch",
+    why: "Opens the chest after pressing so the shoulders can sit back for the next session.",
+  },
+  shoulder_stretch: {
+    slug: "shoulder_stretch",
+    name: "Cross-body shoulder stretch",
+    why: "Settles the shoulder after pressing, pulling, or a swim.",
+  },
 };
 
 function prescribe(ctx: AthleteContext, slugs: string[], hypertrophy: boolean, phase: Phase): PrescribedExercise[] {
@@ -551,6 +576,107 @@ export function strengthExercises(ctx: AthleteContext, lower: boolean, phase: Ph
     return prescribe(ctx, ["face_pull", "lat_pulldown", "dead_bug", "thoracic_rotation", "plank"], hypertrophy, phase);
   }
   return prescribe(ctx, ["back_squat", "romanian_deadlift", "walking_lunge", "plank"], hypertrophy, phase);
+}
+
+const STRETCH_SLUGS = ["hip_flexor_stretch", "hamstring_stretch", "calf_stretch", "chest_stretch", "shoulder_stretch"] as const;
+const CORE_MOVES = new Set(["plank", "dead_bug", "pallof_press", "farmer_carry", "thoracic_rotation"]);
+const LOWER_MOVE = /squat|lunge|deadlift|rdl|hinge|calf|soleus|hip_thrust|step_up|leg_press|hamstring/;
+const UPPER_MOVE = /bench|press|pull|push_up|curl|face_pull|external_rotation|pulldown/;
+
+function stretchSlugsFor(sport: Sport, lowerBody: boolean): string[] {
+  if (sport === "strength" || sport === "bodybuilding") {
+    return lowerBody ? ["hip_flexor_stretch", "hamstring_stretch"] : ["chest_stretch", "shoulder_stretch"];
+  }
+  if (sport === "swimming") return ["shoulder_stretch", "chest_stretch"];
+  if (sport === "cycling") return ["hip_flexor_stretch", "hamstring_stretch"];
+  return ["hip_flexor_stretch", "calf_stretch"];
+}
+
+function listAvoided(avoid: string[], slug: string, name: string): boolean {
+  const haystack = `${slug} ${name}`.toLowerCase();
+  return avoid.some((item) => {
+    const needle = item.toLowerCase().trim();
+    if (!needle) return false;
+    return haystack.includes(needle) || needle.includes(slug.replaceAll("_", " ")) || needle.includes(slug);
+  });
+}
+
+export function stretchLibrary(): Array<{ slug: string; name: string }> {
+  return STRETCH_SLUGS.flatMap((slug) => {
+    const exercise = EXERCISE_SEEDS[slug];
+    return exercise ? [{ slug: exercise.slug, name: exercise.name }] : [];
+  });
+}
+
+export function stretchExercises(sport: Sport, lowerBody: boolean, avoid: string[]): PrescribedExercise[] {
+  return stretchSlugsFor(sport, lowerBody).flatMap((slug) => {
+    const exercise = EXERCISE_SEEDS[slug];
+    if (!exercise || listAvoided(avoid, exercise.slug, exercise.name)) return [];
+    return [{
+      slug: exercise.slug,
+      name: exercise.name,
+      sets: 1,
+      reps: "30 sec",
+      targetRpe: 3,
+      restSeconds: 15,
+      tempo: "relaxed",
+      technique: "straight" as const,
+      why: exercise.why,
+    }];
+  });
+}
+
+export function withSessionStretches<T extends { sport: Sport; lowerBody: boolean; exercises: PrescribedExercise[]; structure: Record<string, unknown> }>(
+  session: T,
+  avoid: string[],
+): T {
+  const extra = stretchExercises(session.sport, session.lowerBody, avoid).filter(
+    (exercise) => !session.exercises.some((current) => current.slug === exercise.slug),
+  );
+  if (!extra.length) return session;
+  const exercises = [...session.exercises, ...extra];
+  return {
+    ...session,
+    exercises,
+    structure: { ...session.structure, exercises: exercises.map((exercise) => exercise.slug) },
+  };
+}
+
+export function strengthFocus(session: {
+  sport: string;
+  lowerBody: boolean;
+  title: string;
+  exercises?: Array<{ slug: string; name?: string }>;
+}): "upper" | "lower" | "both" | null {
+  if (session.sport !== "strength" && session.sport !== "bodybuilding") return null;
+  let upper = false;
+  let lower = false;
+  for (const exercise of session.exercises ?? []) {
+    const slug = exercise.slug.toLowerCase();
+    if (slug.includes("stretch") || CORE_MOVES.has(slug)) continue;
+    const name = (exercise.name ?? "").toLowerCase();
+    if (name.includes("stretch")) continue;
+    const haystack = `${slug} ${name}`;
+    if (LOWER_MOVE.test(haystack)) lower = true;
+    else if (UPPER_MOVE.test(haystack)) upper = true;
+  }
+  if (upper && lower) return "both";
+  if (lower) return "lower";
+  if (upper) return "upper";
+  const title = session.title.toLowerCase();
+  if (title.includes("lower")) return "lower";
+  if (title.includes("upper")) return "upper";
+  return session.lowerBody ? "lower" : "upper";
+}
+
+export function complementPartner(ctx: AthleteContext): Sport | null {
+  if (!ctx.gymAccess) return null;
+  if (isTri(ctx) || wants(ctx, "running")) return "running";
+  if (wants(ctx, "cycling")) return "cycling";
+  if (ctx.poolAccess && wants(ctx, "swimming")) return "swimming";
+  const courts = COURT_SPORTS.filter((item) => wants(ctx, item.slug)).map((item) => item.slug);
+  const named = courts.find((sport) => ctx.primaryGoal.includes(sport));
+  return named ?? courts[0] ?? null;
 }
 
 interface Template {
@@ -693,9 +819,27 @@ function pickWeekTemplates(ctx: AthleteContext, items: Template[], weekIndex: nu
   return picked;
 }
 
+function partnerScore(session: PlannedSession): number {
+  const focus = strengthFocus(session);
+  if (focus === "lower" || focus === "both") return -1;
+  if (session.sport === "running" && session.title !== "Long run" && !session.quality) return 6;
+  if (session.sport === "cycling" || session.sport === "swimming" || isCourtSport(session.sport)) return 4;
+  if (session.sport === "running" && session.title !== "Long run") return 3;
+  if (session.sport === "brick") return 2;
+  if (session.sport === "running") return 1;
+  return 0;
+}
+
+function upperTemplate(template: Template): boolean {
+  return (template.sport === "strength" || template.sport === "bodybuilding") && template.strengthLower === false;
+}
+
 function sameDayClash(template: Template, session: PlannedSession): boolean {
+  const templateLift = template.sport === "strength" || template.sport === "bodybuilding";
+  const sessionLift = session.sport === "strength" || session.sport === "bodybuilding";
+  if (templateLift && sessionLift) return true;
   const templateHeavyLegs = Boolean(template.strengthLower);
-  const sessionHeavyLegs = (session.sport === "strength" || session.sport === "bodybuilding") && session.lowerBody;
+  const sessionHeavyLegs = sessionLift && session.lowerBody;
   if (template.quality && session.quality) return true;
   if (templateHeavyLegs && (session.quality || session.title === "Long run" || session.sport === "running" || session.sport === "cycling" || session.sport === "brick" || isCourtSport(session.sport) || sessionHeavyLegs)) return true;
   if ((template.sport === "cycling" || template.sport === "brick") && template.lowerBody && sessionHeavyLegs) return true;
@@ -1007,6 +1151,12 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
       if (template.strengthLower && neighbors.some((session) => session.quality || session.title === "Long run" || session.sport === "cycling" || session.sport === "brick" || isCourtSport(session.sport))) score -= 5;
       if (besideHeavyLegs && (template.sport === "cycling" || template.sport === "brick" || template.sport === "running" || isCourtSport(template.sport))) score -= 5;
       if ((counts.get(candidate) ?? 0) === 0) score += 4;
+      if (allowsTwoSessions(ctx) && upperTemplate(template) && (counts.get(candidate) ?? 0) > 0) {
+        const best = placed
+          .filter((session) => session.date === candidate)
+          .reduce((top, session) => Math.max(top, partnerScore(session)), 0);
+        if (best > 0) score += best;
+      }
       if (template.title === "Long run" && (weekday(candidate) === 6 || weekday(candidate) === 0)) score += 3;
       if (template.sport === "brick" && weekday(candidate) >= 5) score += 2;
       if (template.sport === "swimming") score += 1;
@@ -1045,7 +1195,19 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
       exercises,
     });
   }
-  return balanceDoubledDays(placed, ctx.minutesPerDay).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  for (const session of placed) {
+    if (strengthFocus(session) !== "upper") continue;
+    const partner = placed
+      .filter((item) => item.date === session.date && item !== session)
+      .sort((a, b) => partnerScore(b) - partnerScore(a))[0];
+    if (partner && partnerScore(partner) > 0) {
+      const partnerName = partner.sport === "running" ? "running" : partner.sport.replaceAll("_", " ");
+      session.why = `Upper-body strength shares this day with ${partnerName} so the sessions complement each other. Upper-body and lower-body lifting stay on different days.`;
+    }
+  }
+  return balanceDoubledDays(placed, ctx.minutesPerDay)
+    .map((session) => withSessionStretches(session, ctx.avoidExercises))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
 
 export function phaseForWeek(weekIndex: number, totalWeeks: number): Phase {
@@ -1119,11 +1281,12 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
       ? "Bodybuilding is its own hypertrophy work in this plan (push, pull, and legs). It is not replaced by a general strength session, and the leg day stays away from the long run and interval running."
       : "",
     hasRun || hasBike || hasSwim ? "Heavy lower-body strength is kept away from interval running and the long run." : "",
+    "Every workout includes stretching.",
     hasSwim ? "Swimming is used as cardiovascular work that does not beat up the legs the way running does." : "",
     courtNames.length ? `Practice for ${joinNames(courtNames)} is in this plan. Match-speed days stay away from heavy squats.` : "",
     allowsTwoSessions(ctx)
-      ? "You said more than one workout on the same day is fine, so some days have two sessions and those two share the minutes you set for the day."
-      : "Each training day has one workout, so every selected sport gets its own session.",
+      ? "You said more than one workout on the same day is fine, so some days have two sessions and those two share the minutes you set for the day. Upper-body strength shares a day with a complementary sport such as running, and upper-body and lower-body lifting stay on different days."
+      : "Each training day has one workout, so every selected sport gets its own session. Upper-body and lower-body lifting stay on different days.",
     sportsRotate(ctx, sessions, endDate)
       ? "There are more selected sports than training days, so the extra sports rotate through the plan and every one of them still appears."
       : "",
@@ -1176,21 +1339,40 @@ export function findConflicts(sessions: PlannedSession[]): ConflictFinding[] {
       const earlierIndex = a.date <= b.date ? i : j;
       const laterIndex = a.date <= b.date ? j : i;
       if (earlier.sport === "brick" || later.sport === "brick") continue;
-      const heavyLower = (session: PlannedSession) =>
-        (session.sport === "strength" || session.sport === "bodybuilding") && session.lowerBody && session.intensity !== "recovery";
-      const hardRun = (session: PlannedSession) => session.sport === "running" && (session.quality || session.title === "Long run");
-      if (heavyLower(earlier) && hardRun(later)) {
+      const focusA = strengthFocus(a);
+      const focusB = strengthFocus(b);
+      const regions = [focusA, focusB].filter((focus): focus is "upper" | "lower" | "both" => focus != null);
+      if (gap === 0 && (regions.includes("both") || (regions.includes("upper") && regions.includes("lower")))) {
         findings.push({
-          severity: later.intensity === "vo2" ? "high" : "warning",
+          severity: "high",
+          title: "Upper and lower body are on the same day",
+          explanation: "Upper-body strength and lower-body strength on the same day compete for recovery. Pair upper-body strength with running or another complementary sport, and keep lower-body lifting on a different day.",
+          factors: [
+            `${a.title} on ${a.date} is ${focusA ?? a.sport} work.`,
+            `${b.title} on ${b.date} is ${focusB ?? b.sport} work.`,
+            "Tamreen does not pair upper-body and lower-body lifting on the same day.",
+          ],
+          sessionA: i,
+          sessionB: j,
+        });
+        continue;
+      }
+      const heavyLower = (session: PlannedSession) => strengthFocus(session) === "lower" && session.intensity !== "recovery";
+      const hardRun = (session: PlannedSession) => session.sport === "running" && (session.quality || session.title === "Long run");
+      const lowerSession = [a, b].find(heavyLower);
+      const runSession = [a, b].find((session) => hardRun(session) && session !== lowerSession);
+      if (lowerSession && runSession) {
+        findings.push({
+          severity: runSession.intensity === "vo2" ? "high" : "warning",
           title: "Training conflict detected",
           explanation: "Heavy lower-body strength training may reduce the quality of the next running session.",
           factors: [
-            `${earlier.title} on ${earlier.date} loads the same muscles the run needs.`,
-            `${later.title} on ${later.date} is a ${later.intensity} running session.`,
+            `${lowerSession.title} on ${lowerSession.date} loads the same muscles the run needs.`,
+            `${runSession.title} on ${runSession.date} is a ${runSession.intensity} running session.`,
             "Tamreen separates these so the interval or long run is not performed on pre-fatigued legs.",
           ],
-          sessionA: earlierIndex,
-          sessionB: laterIndex,
+          sessionA: lowerSession === a ? i : j,
+          sessionB: runSession === a ? i : j,
         });
       } else if (heavyLower(earlier) && isCourtSport(later.sport) && later.quality) {
         findings.push({

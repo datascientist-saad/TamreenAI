@@ -18,6 +18,7 @@ import {
   scoreReadiness,
   sessionLoad,
   strengthScore,
+  stretchLibrary,
   swimmingScore,
   type AthleteContext,
   type CatalogSport,
@@ -95,6 +96,7 @@ const onboardingSchema = z.object({
     severity: z.enum(["mild", "moderate", "severe"]),
     redFlag: z.boolean(),
   })).max(12),
+  eventId: z.string().uuid().nullable(),
   event: z.object({
     name: z.string().min(1).max(120),
     eventType: z.string().min(1).max(80),
@@ -223,7 +225,7 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
       return error?.message ?? null;
     })(),
     (async () => {
-      const { error: clearError } = await supabase.from("injuries").delete().eq("user_id", user.id);
+      const { error: clearError } = await supabase.from("injuries").delete().eq("user_id", user.id).eq("status", "current");
       if (clearError) return clearError.message;
       if (!parsed.injuries.length) return null;
       const { error } = await supabase.from("injuries").insert(parsed.injuries.map((injury) => ({
@@ -238,7 +240,27 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
       return error?.message ?? null;
     })(),
     (async () => {
-      if (!parsed.event) return null;
+      if (!parsed.event) {
+        if (parsed.eventId) {
+          const { error } = await supabase.from("events").update({ deleted_at: new Date().toISOString() }).eq("id", parsed.eventId).eq("owner_user_id", user.id);
+          if (error) return error.message;
+        }
+        const { error } = await supabase.from("events").delete().eq("owner_user_id", user.id).eq("description", "Training target created during onboarding.");
+        return error?.message ?? null;
+      }
+      if (parsed.eventId) {
+        const { data, error } = await supabase.from("events").update({
+          name: parsed.event.name,
+          event_type: parsed.event.eventType,
+          discipline: parsed.event.eventType,
+          starts_on: parsed.event.date,
+          distance_m: parsed.event.distanceM,
+          goal_time_seconds: parsed.event.goalTimeSeconds,
+          deleted_at: null,
+        }).eq("id", parsed.eventId).eq("owner_user_id", user.id).select("id");
+        if (error) return error.message;
+        if (data?.length) return null;
+      }
       const { error: clearEventError } = await supabase.from("events").delete().eq("owner_user_id", user.id).eq("description", "Training target created during onboarding.");
       if (clearEventError) return clearEventError.message;
       const { error } = await supabase.from("events").insert({
@@ -384,7 +406,14 @@ async function writePlan(supabase: Database, userId: string) {
     supabase.from("exercise_library").select("id, slug, name"),
   ]);
   if (libraryError) return { ok: false as const, message: libraryError.message };
-  const exercises = (library ?? []).flatMap((exercise) => exercise.slug && exercise.name ? [{ slug: exercise.slug, name: exercise.name }] : []);
+  const exerciseMap = new Map<string, { slug: string; name: string }>();
+  for (const exercise of library ?? []) {
+    if (exercise.slug && exercise.name) exerciseMap.set(exercise.slug, { slug: exercise.slug, name: exercise.name });
+  }
+  for (const stretch of stretchLibrary()) {
+    if (!exerciseMap.has(stretch.slug)) exerciseMap.set(stretch.slug, stretch);
+  }
+  const exercises = [...exerciseMap.values()];
   let resolved;
   try {
     resolved = await resolvePlan({
@@ -484,6 +513,7 @@ async function writePlan(supabase: Database, userId: string) {
       tempo: exercise.tempo,
       technique: exercise.technique,
       why_text: exercise.why,
+      notes: exercise.name,
     }));
   });
   if (exerciseRows.length) {

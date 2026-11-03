@@ -55,6 +55,18 @@ export function formatClock(totalSeconds: number): string {
 
 export type ClockParse = { ok: true; seconds: number | null } | { ok: false; message: string };
 
+export function clockParts(totalSeconds: number | null): { hours: string; minutes: string; seconds: string } {
+  if (totalSeconds == null || totalSeconds <= 0) return { hours: "", minutes: "", seconds: "" };
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  return {
+    hours: hours > 0 ? String(hours) : "",
+    minutes: hours > 0 || minutes > 0 ? String(minutes) : "",
+    seconds: String(seconds),
+  };
+}
+
 export function clockFromParts(hours: unknown, minutes: unknown, seconds: unknown): ClockParse {
   const raw = [hours, minutes, seconds].map((value) => (value == null ? "" : String(value).trim()));
   if (raw.every((part) => part === "")) return { ok: true, seconds: null };

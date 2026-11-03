@@ -10,7 +10,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
   const { supabase, user } = await requireUser();
   const { data: workout } = await supabase
     .from("workouts")
-    .select("id, sport, title, objective, duration_min, intensity, why_text, status, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, exercise_library(name))")
+    .select("id, sport, title, objective, duration_min, intensity, why_text, status, workout_exercises(exercise_id, sort_order, set_count, reps, why_text, notes, exercise_library(name))")
     .eq("id", workoutId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -32,7 +32,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
   }
   const exercises: LoggerExercise[] = (workout.workout_exercises ?? []).map((row) => {
     const library = Array.isArray(row.exercise_library) ? row.exercise_library[0] : row.exercise_library;
-    const name = library?.name ?? "Exercise";
+    const name = library?.name || row.notes?.trim() || "Exercise";
     return {
       id: row.exercise_id,
       name,
@@ -48,6 +48,16 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
     <PageFrame eyebrow={sportLabel(workout.sport)} title={workout.title} lede={workout.why_text}>
       <p className="text-sm text-muted">{workout.duration_min} min · {workout.intensity} · {workout.status}</p>
       <p>{workout.objective}</p>
+      {!strength && exercises.length ? (
+        <ul className="grid gap-2">
+          {exercises.map((exercise) => (
+            <li key={`${exercise.name}-${exercise.reps}`} className="rounded-xl bg-paper px-3 py-2 text-sm">
+              <span className="font-bold">{exercise.name}</span> · {exercise.sets} × {exercise.reps}
+              {exercise.why ? <span className="block text-muted">{exercise.why}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {strength ? (
         <StrengthLogger
           workoutId={workout.id}

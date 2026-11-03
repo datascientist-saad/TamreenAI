@@ -1,4 +1,5 @@
 import { OnboardingWizard } from "@/features/onboarding/wizard";
+import { loadOnboardingDraft } from "@/server/queries";
 
 export const maxDuration = 60;
 
@@ -12,8 +13,8 @@ export default async function OnboardingPage({
 }: {
   searchParams: Promise<{ focus?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, draft] = await Promise.all([searchParams, loadOnboardingDraft()]);
   const focus = params.focus === "profile" || params.focus === "goals" ? params.focus : undefined;
   const initialStep = focus ? focusSteps[focus] : 0;
-  return <OnboardingWizard initialStep={initialStep} />;
+  return <OnboardingWizard initialStep={initialStep} draft={draft} />;
 }

@@ -22,7 +22,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
   const [from, to] = windowFor(view, today, currentBlock);
   const { data: workouts } = await supabase
     .from("workouts")
-    .select("id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, zones, workout_exercises(sort_order, set_count, reps, why_text, exercise_library(name))")
+    .select("id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, zones, workout_exercises(sort_order, set_count, reps, why_text, notes, exercise_library(name))")
     .eq("user_id", user.id)
     .is("deleted_at", null)
     .gte("scheduled_date", from)
@@ -50,7 +50,7 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
         </ul>
       ) : null}
       {(workouts ?? []).length === 0 && view !== "week" ? (
-        <EmptyState title="This view is empty." body="Finish onboarding or create a plan. TamreenAI writes it from the sports, goal, and days saved on your profile." href="/onboarding" action="Complete onboarding" />
+        <EmptyState title="This view is empty." body="This range has no sessions. TamreenAI writes the plan from the sports, goal, and days saved on your profile." href="/onboarding" action="Edit training setup" />
       ) : (
         <div className="grid gap-4">
           {groupDates(view, from, to, today, workouts ?? []).map((date) => {
@@ -85,15 +85,16 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
   );
 }
 
-function ExerciseList({ rows }: { rows: Array<{ sort_order: number; set_count: number; reps: string; why_text: string; exercise_library: { name: string } | { name: string }[] | null }> | null }) {
+function ExerciseList({ rows }: { rows: Array<{ sort_order: number; set_count: number; reps: string; why_text: string; notes: string | null; exercise_library: { name: string } | { name: string }[] | null }> | null }) {
   if (!rows?.length) return null;
   return (
     <ul className="mt-3 grid gap-2">
       {rows.map((row) => {
         const library = Array.isArray(row.exercise_library) ? row.exercise_library[0] : row.exercise_library;
+        const name = library?.name || row.notes?.trim() || "Exercise";
         return (
-          <li key={`${library?.name}-${row.sort_order}`} className="rounded-xl bg-paper px-3 py-2 text-sm">
-            <span className="font-bold">{library?.name ?? "Exercise"}</span> · {row.set_count} × {row.reps}
+          <li key={`${name}-${row.sort_order}`} className="rounded-xl bg-paper px-3 py-2 text-sm">
+            <span className="font-bold">{name}</span> · {row.set_count} × {row.reps}
             {row.why_text ? <span className="block text-muted">{row.why_text}</span> : null}
           </li>
         );
