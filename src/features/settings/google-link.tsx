@@ -4,7 +4,7 @@ import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 
-export function GoogleLinkButton({ alreadyLinked }: { alreadyLinked: boolean }) {
+export function GoogleLinkButton({ alreadyLinked, next = "/more" }: { alreadyLinked: boolean; next?: string }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   if (alreadyLinked) {
@@ -30,7 +30,7 @@ export function GoogleLinkButton({ alreadyLinked }: { alreadyLinked: boolean }) 
             const { data, error: authError } = await supabase.auth.linkIdentity({
               provider: "google",
               options: {
-                redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/more")}`,
+                redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
               },
             });
             if (authError) {

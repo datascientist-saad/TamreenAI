@@ -50,7 +50,7 @@ export async function loadHome() {
   ] = await Promise.all([
     shell.supabase
       .from("workouts")
-      .select("id, sport, title, duration_min, intensity, objective, why_text, status, importance, expected_load, data_origin")
+      .select("id, sport, title, duration_min, intensity, objective, why_text, status, importance, expected_load, data_origin, workout_exercises(exercise_library(slug, live_supported))")
       .eq("user_id", shell.user.id)
       .eq("scheduled_date", today)
       .is("deleted_at", null)

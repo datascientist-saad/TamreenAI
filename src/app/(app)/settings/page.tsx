@@ -31,6 +31,7 @@ export default async function SettingsPage() {
         <h2 className="font-bold">Sports, goals, and availability</h2>
         <p className="text-sm text-muted">Profile, goals, and WHOOP are on More. Updating onboarding rebuilds future planned sessions. Completed history stays.</p>
         <div className="mt-3 flex flex-wrap gap-2">
+          <Link className="btn btn-primary" href="/profile">Profile</Link>
           <Link className="btn btn-ghost" href="/more">Open More</Link>
           <Link className="btn btn-ghost" href="/onboarding">Edit onboarding</Link>
         </div>

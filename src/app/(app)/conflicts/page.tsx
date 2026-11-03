@@ -1,16 +1,16 @@
 import { PageFrame } from "@/components/page";
 import { ExplainList } from "@/components/states";
-import { optimizeOpenConflicts } from "@/server/actions";
+import { OptimizeButton } from "@/features/plan/optimize-button";
 import { requireUser } from "@/server/guard";
 
 export default async function ConflictsPage() {
   const { supabase, user } = await requireUser();
   const { data: conflicts } = await supabase.from("training_conflicts").select("id, title, explanation, severity, status, recommendation").eq("user_id", user.id).order("created_at", { ascending: false }).limit(12);
+  const open = (conflicts ?? []).filter((conflict) => conflict.status === "open");
   return (
-    <PageFrame eyebrow="Conflicts" title="Sessions that interfere" lede="Optimize moves supporting work off the day before a key quality session, within the days you said you can train.">
-      <form action={async () => { "use server"; await optimizeOpenConflicts(); }}>
-        <button className="btn btn-primary" type="submit">Optimize schedule</button>
-      </form>
+    <PageFrame eyebrow="Conflicts" title="Sessions that interfere" lede="Optimize moves the next two weeks inside the days you said you can train. The plan updates as soon as a session moves.">
+      <OptimizeButton />
+      {open.length === 0 ? <p className="text-sm text-muted">No open conflicts. The schedule already keeps the hard sessions apart, or there is nothing left to move.</p> : null}
       <ul className="grid gap-3">
         {(conflicts ?? []).map((conflict) => (
           <li key={conflict.id} className="app-card p-4">

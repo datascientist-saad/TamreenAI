@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { generatePlan } from "@/server/actions";
 
 export function RebuildPlanButton() {
+  const router = useRouter();
   const [pending, setPending] = useState(false);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
@@ -18,7 +20,9 @@ export function RebuildPlanButton() {
           setPending(false);
           return;
         }
-        window.location.assign("/plan");
+        setAsking(false);
+        setPending(false);
+        router.refresh();
       })
       .catch(() => {
         setError("The plan could not be rebuilt. Try again.");

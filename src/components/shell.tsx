@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, CalendarDays, House, Menu, Video } from "lucide-react";
+import { AvatarMark } from "./avatar";
 import { Mark, Wordmark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
@@ -27,15 +28,18 @@ const side = [
   ["/records", "Records"],
   ["/events", "Events"],
   ["/triathlon", "Triathlon"],
+  ["/profile", "Profile"],
   ["/settings", "Settings"],
 ] as const;
 
 export function AppShell({
   children,
   roles,
+  athlete,
 }: {
   children: React.ReactNode;
   roles: string[];
+  athlete: { name: string; avatarUrl: string | null };
 }) {
   const pathname = usePathname();
   const extra = [
@@ -63,7 +67,14 @@ export function AppShell({
             </Link>
           ))}
         </nav>
-        <div className="mt-auto">
+        <div className="mt-auto grid gap-3">
+          <Link href="/profile" className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-paper">
+            <AvatarMark name={athlete.name} src={athlete.avatarUrl} />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-bold">{athlete.name}</span>
+              <span className="block text-xs text-muted">Profile</span>
+            </span>
+          </Link>
           <ThemeToggle />
         </div>
       </aside>
@@ -71,6 +82,7 @@ export function AppShell({
         <header className="sticky top-0 z-40 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur md:hidden">
           <Link href="/home" aria-label="Tamreen home" className="shrink-0"><Mark /></Link>
           <Link href="/plan" className={cn("btn shrink-0", pathname === "/plan" || pathname.startsWith("/plan/") ? "btn-primary" : "btn-ghost")}>Plan</Link>
+          <Link href="/profile" aria-label="Profile" className="shrink-0"><AvatarMark name={athlete.name} src={athlete.avatarUrl} size={36} /></Link>
           <ThemeToggle compact />
         </header>
         {children}
