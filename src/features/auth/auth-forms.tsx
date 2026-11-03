@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { LoaderCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 import { Wordmark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -65,6 +66,7 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
   const router = useRouter();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [googlePending, setGooglePending] = useState(false);
   const title = mode === "login" ? "Sign in" : "Create your athlete account";
   return (
     <Shell title={title} subtitle="Email and password, or Google.">
@@ -104,18 +106,42 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
         <span className="relative z-10 bg-card px-3">or</span>
         <span className="absolute inset-x-0 top-1/2 border-t border-line" aria-hidden="true" />
       </div>
-      <button className="btn btn-ghost w-full" type="button" onClick={async () => {
-        setError("");
-        const supabase = createClient();
-        const { error: authError } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo: `${window.location.origin}/auth/callback` },
-        });
-        if (authError) setError(authError.message);
-      }}>Continue with Google</button>
-      {error ? <p className="mt-3 text-sm text-live">{error}</p> : null}
+      <button
+        className="btn btn-ghost w-full transition active:scale-[0.98] active:bg-line disabled:active:scale-100"
+        type="button"
+        disabled={googlePending}
+        aria-busy={googlePending}
+        onClick={async () => {
+          setError("");
+          setGooglePending(true);
+          // Paint the spinner before the browser leaves for Google.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          });
+          try {
+            const supabase = createClient();
+            const { data, error: authError } = await supabase.auth.signInWithOAuth({
+              provider: "google",
+              options: { redirectTo: `${window.location.origin}/auth/callback` },
+            });
+            if (authError) {
+              setError(authError.message);
+              setGooglePending(false);
+              return;
+            }
+            if (!data.url) setGooglePending(false);
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : "Google sign-in did not start.");
+            setGooglePending(false);
+          }
+        }}
+      >
+        {googlePending ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : null}
+        {googlePending ? "Continuing…" : "Continue with Google"}
+      </button>
+      {error ? <p className="mt-3 text-sm text-live" role="alert">{error}</p> : null}
       <p className="mt-4 text-sm text-muted">
-        {mode === "login" ? <Link href="/forgot-password">Forgot password</Link> : null}
+        {mode === "login" ? <Link href="/forgot-password">Forgot password?</Link> : null}
         {" "}
         {mode === "login" ? <Link href="/signup">Create an account</Link> : <Link href="/login">Already training? Sign in</Link>}
       </p>
