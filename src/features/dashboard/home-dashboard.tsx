@@ -1,6 +1,8 @@
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { DemoBanner, EmptyState, ExplainList, SafetyBanner } from "@/components/states";
-import { LoadChart } from "@/features/dashboard/load-chart";
+
+const LoadChart = dynamic(() => import("@/features/dashboard/load-chart").then((mod) => mod.LoadChart));
 import { WhoopMetrics } from "@/features/whoop/metrics";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
 import type { WhoopMetricView } from "@/services/wearables/whoop";
@@ -12,6 +14,7 @@ type TodayWorkout = {
   duration_min: number | null;
   objective: string | null;
   why_text: string | null;
+  camera?: boolean;
 };
 
 type WeekWorkout = {
@@ -107,7 +110,10 @@ export function HomeDashboard({
                   <h3 className="mt-2 text-balance text-xl font-bold sm:text-2xl">{workout.title}</h3>
                   <p className="text-sm text-muted">{workout.objective}</p>
                   <p className="mt-2 text-sm">{workout.why_text}</p>
-                  <Link className="btn btn-primary mt-4 w-full sm:w-auto" href={`/train/${workout.id}`}>Start workout</Link>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Link className="btn btn-primary w-full sm:w-auto" href={`/train/${workout.id}`}>Start workout</Link>
+                    {workout.camera ? <Link className="btn btn-ghost w-full sm:w-auto" href="/live">Live camera</Link> : null}
+                  </div>
                 </li>
               ))}
             </ul>

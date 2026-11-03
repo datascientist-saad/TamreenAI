@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 
-export function GoogleLinkButton({ alreadyLinked }: { alreadyLinked: boolean }) {
+export function GoogleLinkButton({ alreadyLinked, next = "/more" }: { alreadyLinked: boolean; next?: string }) {
   const [error, setError] = useState("");
   if (alreadyLinked) {
     return <p className="text-sm text-muted">Signed in with Google.</p>;
@@ -19,7 +19,7 @@ export function GoogleLinkButton({ alreadyLinked }: { alreadyLinked: boolean }) 
           const { error: authError } = await supabase.auth.linkIdentity({
             provider: "google",
             options: {
-              redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/more")}`,
+              redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
             },
           });
           if (authError) setError(authError.message);
