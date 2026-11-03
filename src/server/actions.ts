@@ -84,6 +84,7 @@ const onboardingSchema = z.object({
   customGoal: z.string().max(160).optional(),
   preferredDays: z.array(z.number().int().min(0).max(6)).min(1),
   minutesPerDay: z.number().int().min(15).max(360),
+  multipleSessionsPerDay: z.boolean(),
   gymAccess: z.boolean(),
   poolAccess: z.boolean(),
   bikeAccess: z.boolean(),
@@ -130,6 +131,7 @@ function onboardingIssue(error: z.ZodError): string {
     heightCm: "Height",
     weightKg: "Weight",
     minutesPerDay: "Minutes per day",
+    multipleSessionsPerDay: "Workouts per day",
     sports: "Sports",
     goals: "Goals",
     "event.name": "Event name",
@@ -176,6 +178,7 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
       experience_level: parsed.experience,
       days_available: parsed.preferredDays.length,
       minutes_per_day: parsed.minutesPerDay,
+      multiple_sessions_per_day: parsed.multipleSessionsPerDay,
       preferred_days: parsed.preferredDays,
       gym_access: parsed.gymAccess,
       pool_access: parsed.poolAccess,
@@ -326,6 +329,7 @@ async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<
     experience: athlete?.experience_level ?? "intermediate",
     preferredDays: athlete?.preferred_days ?? [1, 2, 3, 4, 5, 6],
     minutesPerDay: athlete?.minutes_per_day ?? 60,
+    multipleSessionsPerDay: athlete?.multiple_sessions_per_day === true,
     gymAccess: athlete?.gym_access ?? true,
     poolAccess: athlete?.pool_access ?? false,
     bikeAccess: athlete?.bike_access ?? false,
@@ -355,6 +359,7 @@ async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<
     experience: ctx.experience,
     preferredDays: ctx.preferredDays,
     minutesPerDay: ctx.minutesPerDay,
+    multipleSessionsPerDay: ctx.multipleSessionsPerDay === true,
     gymAccess: ctx.gymAccess,
     poolAccess: ctx.poolAccess,
     bikeAccess: ctx.bikeAccess,
@@ -540,9 +545,15 @@ async function writePlan(supabase: Database, userId: string) {
   return { ok: true as const, recommendedLoad: recommendedWeeklyLoad(ctx) };
 }
 
-export async function generatePlan() {
+export async function generatePlan(input: { multipleSessionsPerDay: boolean }) {
   try {
+    const multipleSessionsPerDay = input?.multipleSessionsPerDay === true;
     const { supabase, user } = await limit("generate_plan", 8, 3600);
+    const { error: preferenceError } = await supabase
+      .from("athlete_profiles")
+      .update({ multiple_sessions_per_day: multipleSessionsPerDay })
+      .eq("user_id", user.id);
+    if (preferenceError) return { ok: false as const, message: preferenceError.message };
     const written = await writePlan(supabase, user.id);
     if (!written.ok) return written;
     safeRevalidate("/home");

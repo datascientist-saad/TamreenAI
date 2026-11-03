@@ -128,7 +128,7 @@ export function shiftIsoDate(iso: string, days: number): string {
 
 export function sportLabel(sport: string): string {
   const short: Record<string, string> = {
-    bodybuilding: "Hypertrophy",
+    bodybuilding: "Bodybuilding",
     running: "Run",
     cycling: "Bike",
     swimming: "Swim",

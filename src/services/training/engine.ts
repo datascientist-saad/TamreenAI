@@ -67,6 +67,8 @@ export interface AthleteContext {
   experience: Experience;
   preferredDays: number[];
   minutesPerDay: number;
+  /** True when the athlete agreed that some days can hold two workouts. */
+  multipleSessionsPerDay?: boolean;
   gymAccess: boolean;
   poolAccess: boolean;
   bikeAccess: boolean;
@@ -691,6 +693,224 @@ interface Template {
   zones: Record<string, string>;
   structure: Record<string, unknown>;
   strengthLower?: boolean;
+  /** The one session that counts as this sport for the week. Extras fill leftover days. */
+  required?: boolean;
+  exerciseSlugs?: string[];
+}
+
+const HYPERTROPHY_SPLITS: Array<{ title: string; objective: string; why: string; slugs: string[]; lower: boolean; pattern: string }> = [
+  {
+    title: "Bodybuilding push",
+    objective: "Chest, shoulders, and arms for muscle size",
+    why: "You selected bodybuilding, so this day is hypertrophy work. It stays separate from the strength sessions.",
+    slugs: ["bench_press", "overhead_press", "push_up"],
+    lower: false,
+    pattern: "push hypertrophy",
+  },
+  {
+    title: "Bodybuilding pull",
+    objective: "Back and arms for muscle size",
+    why: "You selected bodybuilding, so this day trains the back and arms for size. It is not folded into a general strength session.",
+    slugs: ["lat_pulldown", "pull_up", "bicep_curl", "face_pull"],
+    lower: false,
+    pattern: "pull hypertrophy",
+  },
+  {
+    title: "Bodybuilding legs",
+    objective: "Quads, hamstrings, and calves for muscle size",
+    why: "You selected bodybuilding, so the legs get a hypertrophy session. It stays away from the long run and the interval day.",
+    slugs: ["split_squat", "romanian_deadlift", "walking_lunge", "calf_raise"],
+    lower: true,
+    pattern: "leg hypertrophy",
+  },
+];
+
+function hypertrophySplits(weekIndex: number) {
+  return [0, 1, 2].map((offset) => HYPERTROPHY_SPLITS[(weekIndex + offset) % HYPERTROPHY_SPLITS.length]);
+}
+
+function servesGoal(ctx: AthleteContext, sport: Sport): boolean {
+  if (ctx.primaryGoal === "general_hybrid" || ctx.primaryGoal === "custom") return true;
+  const goal = `${ctx.primaryGoal} ${ctx.goals.join(" ")}`.toLowerCase();
+  if (sport === "running" && /run|5k|10k|marathon|ironman|triathlon/.test(goal)) return true;
+  if (sport === "cycling" && /cycl|ironman|triathlon/.test(goal)) return true;
+  if (sport === "swimming" && /swim|ironman|triathlon/.test(goal)) return true;
+  if (sport === "strength" && goal.includes("strength")) return true;
+  if (sport === "bodybuilding" && /muscle|recomp|fat|bodybuild/.test(goal)) return true;
+  return isCourtSport(sport) && goal.includes(sport);
+}
+
+function trainingDayCount(ctx: AthleteContext): number {
+  return Math.max(new Set(ctx.preferredDays.filter((day) => day >= 0 && day <= 6)).size, 1);
+}
+
+function allowsTwoSessions(ctx: AthleteContext): boolean {
+  return ctx.multipleSessionsPerDay === true && ctx.minutesPerDay >= 40;
+}
+
+function markRequired(ctx: AthleteContext, items: Template[]): Template[] {
+  const shortRun = ctx.primaryGoal === "improve_5k" || ctx.primaryGoal === "improve_10k";
+  const seen = new Set<string>();
+  return items.map((item) => {
+    let required = false;
+    const claim = (key: string) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      required = true;
+    };
+    if (item.sport === "running") {
+      if (shortRun ? item.quality : item.title === "Long run") claim("running");
+    } else if (item.sport === "cycling" || item.sport === "swimming" || item.sport === "strength" || isCourtSport(item.sport)) {
+      claim(item.sport);
+    } else if (item.sport === "bodybuilding") {
+      claim("bodybuilding");
+    } else if (item.sport === "mobility") {
+      claim("mobility");
+    }
+    return { ...item, required };
+  });
+}
+
+function extraRank(item: Template): number {
+  if (item.importance === "key") return 0;
+  if (item.sport === "bodybuilding") return 1;
+  if (item.sport === "strength") return 2;
+  return 3;
+}
+
+function pickWeekTemplates(ctx: AthleteContext, items: Template[], weekIndex: number): Template[] {
+  const marked = markRequired(ctx, items);
+  const days = trainingDayCount(ctx);
+  const hardCap = allowsTwoSessions(ctx) ? days * 2 : days;
+  const softCap = allowsTwoSessions(ctx) ? Math.min(hardCap, days + Math.ceil(days / 2)) : days;
+  const required = marked.filter((item) => item.required);
+  const muscleFocus = ctx.primaryGoal === "build_muscle" || ctx.primaryGoal === "recomposition" || ctx.primaryGoal === "lose_fat";
+  const bodybuildingExtraCap = muscleFocus ? 2 : 1;
+  let bodybuildingExtras = 0;
+  const extras = marked
+    .filter((item) => !item.required)
+    .filter((item) => {
+      if (item.sport !== "bodybuilding") return true;
+      bodybuildingExtras += 1;
+      return bodybuildingExtras <= bodybuildingExtraCap;
+    })
+    .sort((a, b) => extraRank(a) - extraRank(b));
+  let picked: Template[];
+  if (required.length <= hardCap) {
+    picked = [...required];
+  } else {
+    const goal = required.filter((item) => servesGoal(ctx, item.sport));
+    const rest = required.filter((item) => !servesGoal(ctx, item.sport));
+    const ring = [...goal, ...rest];
+    const start = weekIndex % ring.length;
+    picked = [];
+    for (let index = 0; index < hardCap; index += 1) picked.push(ring[(start + index) % ring.length]);
+  }
+  const room = Math.max(Math.min(softCap, hardCap) - picked.length, 0);
+  picked.push(...extras.slice(0, room));
+  if (weekIndex % 2 === 1) {
+    const longIndex = picked.findIndex((item) => item.title === "Long run");
+    const brickIndex = picked.findIndex((item) => item.sport === "brick");
+    if (longIndex >= 0 && brickIndex >= 0) {
+      const runs = picked.filter((item) => item.sport === "running").length;
+      picked.splice(runs > 1 ? longIndex : brickIndex, 1);
+    }
+  }
+  return picked;
+}
+
+function partnerScore(session: PlannedSession): number {
+  const focus = strengthFocus(session);
+  if (focus === "lower" || focus === "both") return -1;
+  if (session.sport === "running" && session.title !== "Long run" && !session.quality) return 6;
+  if (session.sport === "cycling" || session.sport === "swimming" || isCourtSport(session.sport)) return 4;
+  if (session.sport === "running" && session.title !== "Long run") return 3;
+  if (session.sport === "brick") return 2;
+  if (session.sport === "running") return 1;
+  return 0;
+}
+
+function upperTemplate(template: Template): boolean {
+  return (template.sport === "strength" || template.sport === "bodybuilding") && template.strengthLower === false;
+}
+
+function sameDayClash(template: Template, session: PlannedSession): boolean {
+  const templateLift = template.sport === "strength" || template.sport === "bodybuilding";
+  const sessionLift = session.sport === "strength" || session.sport === "bodybuilding";
+  if (templateLift && sessionLift) return true;
+  const templateHeavyLegs = Boolean(template.strengthLower);
+  const sessionHeavyLegs = sessionLift && session.lowerBody;
+  if (template.quality && session.quality) return true;
+  if (templateHeavyLegs && (session.quality || session.title === "Long run" || session.sport === "running" || session.sport === "cycling" || session.sport === "brick" || isCourtSport(session.sport) || sessionHeavyLegs)) return true;
+  if ((template.sport === "cycling" || template.sport === "brick") && template.lowerBody && sessionHeavyLegs) return true;
+  if (template.title === "Long run" && sessionHeavyLegs) return true;
+  if (template.sport === "running" && template.lowerBody && sessionHeavyLegs) return true;
+  if (template.quality && template.lowerBody && isCourtSport(session.sport)) return true;
+  if (isCourtSport(template.sport) && session.quality && session.lowerBody) return true;
+  if (isCourtSport(template.sport) && sessionHeavyLegs) return true;
+  return false;
+}
+
+export function balanceDoubledDays(sessions: PlannedSession[], minutesPerDay: number): PlannedSession[] {
+  const groups = new Map<string, PlannedSession[]>();
+  for (const session of sessions) {
+    const list = groups.get(session.date) ?? [];
+    list.push(session);
+    groups.set(session.date, list);
+  }
+  const adjusted = new Map<PlannedSession, PlannedSession>();
+  for (const list of groups.values()) {
+    if (list.length !== 2) continue;
+    const budget = Math.max(minutesPerDay, 40);
+    const floor = 20;
+    const ranked = [...list].sort((a, b) => Number(b.importance === "key") - Number(a.importance === "key") || b.durationMin - a.durationMin);
+    const primaryMin = clamp(Math.round(budget * 0.65), floor, budget - floor);
+    ranked.forEach((session, index) => {
+      const durationMin = index === 0 ? primaryMin : budget - primaryMin;
+      adjusted.set(session, {
+        ...session,
+        durationMin,
+        expectedLoad: sessionLoad(durationMin, session.intensity, session.sport),
+      });
+    });
+  }
+  return sessions.map((session) => adjusted.get(session) ?? session);
+}
+
+function wantedSports(ctx: AthleteContext): Sport[] {
+  const tri = isTri(ctx);
+  const sports: Sport[] = [];
+  if (tri || wants(ctx, "running")) sports.push("running");
+  if ((tri || wants(ctx, "cycling")) && (ctx.bikeAccess || wants(ctx, "cycling") || tri)) sports.push("cycling");
+  if (ctx.poolAccess && (tri || wants(ctx, "swimming"))) sports.push("swimming");
+  if (wants(ctx, "strength")) sports.push("strength");
+  if (wants(ctx, "bodybuilding")) sports.push("bodybuilding");
+  for (const court of COURT_SPORTS) {
+    if (wants(ctx, court.slug)) sports.push(court.slug);
+  }
+  return sports;
+}
+
+function sportsRotate(ctx: AthleteContext, sessions: PlannedSession[], endDate: string): boolean {
+  const wanted = wantedSports(ctx);
+  if (wanted.length <= trainingDayCount(ctx) * (allowsTwoSessions(ctx) ? 2 : 1)) {
+    const byWeek = new Map<string, Set<Sport>>();
+    for (const session of sessions) {
+      const start = addDays(session.date, -((weekday(session.date) + 6) % 7));
+      const set = byWeek.get(start) ?? new Set<Sport>();
+      set.add(session.sport);
+      byWeek.set(start, set);
+    }
+    let fullWeekMissed = false;
+    for (const [start, sports] of byWeek) {
+      const days = ctx.preferredDays.length ? ctx.preferredDays : [1, 2, 3, 4, 5, 6];
+      const dates = days.filter((day) => day >= 0 && day <= 6).map((day) => addDays(start, (day + 6) % 7));
+      const full = dates.every((date) => date >= ctx.startDate && date <= endDate);
+      if (full && wanted.some((sport) => !sports.has(sport))) fullWeekMissed = true;
+    }
+    return fullWeekMissed;
+  }
+  return true;
 }
 
 function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Template[] {
@@ -699,7 +919,6 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
   const bike = (tri || wants(ctx, "cycling")) && (ctx.bikeAccess || wants(ctx, "cycling") || tri);
   const swim = (tri || wants(ctx, "swimming")) && ctx.poolAccess;
   const court = COURT_SPORTS.filter((item) => wants(ctx, item.slug));
-  const lift = ctx.gymAccess && (wants(ctx, "strength") || wants(ctx, "bodybuilding") || tri || run || bike || swim || court.length > 0);
   const qualityIntensity: Intensity = phase === "base" || phase === "recovery" ? "tempo" : phase === "taper" ? "threshold" : "vo2";
   const items: Template[] = [];
 
@@ -816,24 +1035,24 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
       structure: { focus: play.focus },
     });
   }
-  if (lift) {
+  if (wants(ctx, "strength")) {
     items.push({
-      sport: wants(ctx, "bodybuilding") && !tri ? "bodybuilding" : "strength",
+      sport: "strength",
       title: "Lower-body strength",
       objective: court.length && !run && !bike ? "Strength that supports the sports you play" : "Strength that supports the endurance sports instead of competing with them",
-      intensity: phase === "taper" || phase === "recovery" ? "moderate" : "moderate",
+      intensity: "moderate",
       importance: ctx.primaryGoal === "increase_strength" ? "key" : "supporting",
       share: 0.85,
       lowerBody: true,
       quality: false,
       recoveryHours: 36,
-      why: "Lower-body strength is scheduled away from interval running and the long run.",
+      why: "Lower-body strength is one of the sports you selected. It is scheduled away from interval running and the long run.",
       zones: {},
       structure: { pattern: "hinge and single leg" },
       strengthLower: true,
     });
     items.push({
-      sport: wants(ctx, "bodybuilding") && !tri ? "bodybuilding" : "strength",
+      sport: "strength",
       title: swim && !run ? "Swim-support strength" : "Upper-body strength",
       objective: "Upper-body and trunk work with a low cost to the next run or ride",
       intensity: "moderate",
@@ -842,10 +1061,31 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
       lowerBody: false,
       quality: false,
       recoveryHours: 18,
-      why: "Upper-body work recovers alongside easy aerobic days more easily than heavy squats do.",
+      why: "Upper-body strength is the selected strength work that recovers alongside easy aerobic days.",
       zones: {},
       structure: { pattern: swim ? "shoulders, lats, trunk" : "press and pull" },
       strengthLower: false,
+    });
+  }
+  if (wants(ctx, "bodybuilding")) {
+    const hypertrophyGoal = ctx.primaryGoal === "build_muscle" || ctx.primaryGoal === "recomposition" || ctx.primaryGoal === "lose_fat";
+    hypertrophySplits(weekIndex).forEach((split, index) => {
+      items.push({
+        sport: "bodybuilding",
+        title: split.title,
+        objective: split.objective,
+        intensity: "moderate",
+        importance: hypertrophyGoal && index === 0 ? "key" : "supporting",
+        share: index === 0 ? 0.85 : 0.7,
+        lowerBody: split.lower,
+        quality: false,
+        recoveryHours: split.lower ? 36 : 18,
+        why: split.why,
+        zones: {},
+        structure: { pattern: split.pattern },
+        strengthLower: split.lower,
+        exerciseSlugs: split.slugs,
+      });
     });
   }
   if (items.length === 0) {
@@ -864,98 +1104,7 @@ function templatesFor(ctx: AthleteContext, phase: Phase, weekIndex: number): Tem
       structure: {},
     });
   }
-  const ranked = [...items].sort((a, b) => {
-    if (a.importance === b.importance) return 0;
-    return a.importance === "key" ? -1 : 1;
-  });
-  if (weekIndex % 2 === 1) {
-    const longIndex = ranked.findIndex((item) => item.title === "Long run");
-    const brickIndex = ranked.findIndex((item) => item.sport === "brick");
-    if (longIndex >= 0 && brickIndex >= 0) {
-      ranked.splice(longIndex, 1);
-    }
-  }
-  const oneDay = new Set(ctx.preferredDays.filter((day) => day >= 0 && day <= 6)).size <= 1;
-  if (oneDay && complementPartner(ctx) && weekIndex % 2 === 1) {
-    const lower = ranked.find((item) => item.strengthLower && (item.sport === "strength" || item.sport === "bodybuilding"));
-    if (lower) return [lower];
-  }
-  return ranked;
-}
-
-function templateKey(template: Template): string {
-  if ((template.sport === "strength" || template.sport === "bodybuilding") && template.strengthLower === false) return "upper";
-  if ((template.sport === "strength" || template.sport === "bodybuilding") && template.strengthLower) return "lower";
-  return template.sport;
-}
-
-function canPairUpper(templates: Template[]): boolean {
-  return templates.some((template) => templateKey(template) === "upper")
-    && templates.some((template) => {
-      const key = templateKey(template);
-      if (key === "upper" || key === "lower") return false;
-      return template.sport === "running" || template.sport === "cycling" || template.sport === "swimming" || template.sport === "brick" || isCourtSport(template.sport);
-    });
-}
-
-function partnerScore(session: PlannedSession): number {
-  const focus = strengthFocus(session);
-  if (focus === "lower" || focus === "both") return -1;
-  if (session.sport === "running" && session.title !== "Long run" && !session.quality) return 6;
-  if (session.sport === "cycling" || session.sport === "swimming" || isCourtSport(session.sport)) return 4;
-  if (session.sport === "running" && session.title !== "Long run") return 3;
-  if (session.sport === "brick") return 2;
-  if (session.sport === "running") return 1;
-  return 0;
-}
-
-function realizeTemplate(ctx: AthleteContext, template: Template, date: string, phase: Phase, weekIndex: number): PlannedSession {
-  const durationMin = durationFor(ctx, phase, template.share);
-  const lifting = template.sport === "strength" || template.sport === "bodybuilding";
-  const exercises = lifting ? strengthExercises(ctx, Boolean(template.strengthLower), phase, weekIndex) : [];
-  return {
-    date,
-    sport: template.sport,
-    title: template.title,
-    objective: template.objective,
-    durationMin,
-    intensity: template.intensity,
-    expectedLoad: sessionLoad(durationMin, template.intensity, template.sport),
-    importance: template.importance,
-    recoveryHours: template.recoveryHours,
-    why: template.why,
-    lowerBody: Boolean(template.lowerBody) && template.sport !== "swimming",
-    quality: template.quality,
-    phase,
-    structure: { ...template.structure, exercises: exercises.map((exercise) => exercise.slug) },
-    zones: template.zones,
-    exercises,
-  };
-}
-
-function fitDayBudget(ctx: AthleteContext, placed: PlannedSession[]) {
-  const byDate = new Map<string, PlannedSession[]>();
-  for (const session of placed) {
-    const list = byDate.get(session.date) ?? [];
-    list.push(session);
-    byDate.set(session.date, list);
-  }
-  for (const group of byDate.values()) {
-    const total = group.reduce((sum, session) => sum + session.durationMin, 0);
-    if (group.length < 2 || total <= ctx.minutesPerDay) continue;
-    const floor = Math.min(20, Math.floor(ctx.minutesPerDay / group.length));
-    const scale = ctx.minutesPerDay / total;
-    for (const session of group) {
-      session.durationMin = clamp(Math.round(session.durationMin * scale), floor, ctx.minutesPerDay);
-      session.expectedLoad = sessionLoad(session.durationMin, session.intensity, session.sport);
-    }
-    const scaled = group.reduce((sum, session) => sum + session.durationMin, 0);
-    if (scaled <= ctx.minutesPerDay) continue;
-    const longest = [...group].sort((a, b) => b.durationMin - a.durationMin)[0];
-    if (!longest) continue;
-    longest.durationMin = clamp(longest.durationMin - (scaled - ctx.minutesPerDay), floor, ctx.minutesPerDay);
-    longest.expectedLoad = sessionLoad(longest.durationMin, longest.intensity, longest.sport);
-  }
+  return pickWeekTemplates(ctx, items, weekIndex);
 }
 
 function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Template[], phase: Phase, weekIndex: number): PlannedSession[] {
@@ -967,39 +1116,46 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
     .map((day) => addDays(weekStart, (day + 6) % 7))
     .filter((date) => date >= ctx.startDate)
     .sort();
-  const used = new Set<string>();
+  const maxPerDay = allowsTwoSessions(ctx) ? 2 : 1;
+  const counts = new Map<string, number>();
   const placed: PlannedSession[] = [];
 
-  const take = (prefer: (date: string) => number): string | null => {
-    const choices = pool.filter((date) => !used.has(date));
+  const take = (template: Template, prefer: (date: string) => number): string | null => {
+    const choices = pool.filter((date) => {
+      if ((counts.get(date) ?? 0) >= maxPerDay) return false;
+      return !placed.some((session) => session.date === date && sameDayClash(template, session));
+    });
     if (!choices.length) return null;
-    choices.sort((a, b) => prefer(b) - prefer(a));
+    choices.sort((a, b) => prefer(b) - prefer(a) || a.localeCompare(b));
     return choices[0];
   };
 
-  const pairUpper = canPairUpper(templates);
-  const solo = templates.filter((template) => !(pairUpper && templateKey(template) === "upper"));
-  const ranked = [...solo].sort((a, b) => Number(b.importance === "key") - Number(a.importance === "key"));
-  const primary: Template[] = [];
-  const extra: Template[] = [];
-  const seen = new Set<string>();
-  for (const template of ranked) {
-    const key = templateKey(template);
-    if (seen.has(key)) extra.push(template);
-    else {
-      seen.add(key);
-      primary.push(template);
-    }
-  }
-  for (const template of [...primary, ...extra]) {
-    const date = take((candidate) => {
+  const ordered = [...templates].sort((a, b) => {
+    const requiredDelta = Number(Boolean(b.required)) - Number(Boolean(a.required));
+    if (requiredDelta) return requiredDelta;
+    const keyDelta = Number(b.importance === "key") - Number(a.importance === "key");
+    if (keyDelta) return keyDelta;
+    const legsDelta = Number(Boolean(b.strengthLower)) - Number(Boolean(a.strengthLower));
+    if (legsDelta) return legsDelta;
+    return Number(servesGoal(ctx, b.sport)) - Number(servesGoal(ctx, a.sport));
+  });
+  for (const template of ordered) {
+    const date = take(template, (candidate) => {
       let score = 0;
-      const neighbors = placed.filter((session) => Math.abs(daysBetween(session.date, candidate)) <= 1);
-      if (template.quality && neighbors.some((session) => session.quality || strengthFocus(session) === "lower")) {
-        score -= 5;
-      }
-      if (template.strengthLower && neighbors.some((session) => session.quality || session.title === "Long run")) {
-        score -= 5;
+      const neighbors = placed.filter((session) => Math.abs(daysBetween(session.date, candidate)) === 1);
+      const heavyLegs = (session: PlannedSession) =>
+        (session.sport === "strength" || session.sport === "bodybuilding") && session.lowerBody;
+      const besideHeavyLegs = neighbors.some(heavyLegs);
+      if (template.quality && neighbors.some((session) => session.quality || heavyLegs(session))) score -= 5;
+      if (template.strengthLower && besideHeavyLegs) score -= 5;
+      if (template.strengthLower && neighbors.some((session) => session.quality || session.title === "Long run" || session.sport === "cycling" || session.sport === "brick" || isCourtSport(session.sport))) score -= 5;
+      if (besideHeavyLegs && (template.sport === "cycling" || template.sport === "brick" || template.sport === "running" || isCourtSport(template.sport))) score -= 5;
+      if ((counts.get(candidate) ?? 0) === 0) score += 4;
+      if (allowsTwoSessions(ctx) && upperTemplate(template) && (counts.get(candidate) ?? 0) > 0) {
+        const best = placed
+          .filter((session) => session.date === candidate)
+          .reduce((top, session) => Math.max(top, partnerScore(session)), 0);
+        if (best > 0) score += best;
       }
       if (template.title === "Long run" && (weekday(candidate) === 6 || weekday(candidate) === 0)) score += 3;
       if (template.sport === "brick" && weekday(candidate) >= 5) score += 2;
@@ -1008,40 +1164,50 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
       return score;
     });
     if (!date) continue;
-    used.add(date);
-    placed.push(realizeTemplate(ctx, template, date, phase, weekIndex));
+    counts.set(date, (counts.get(date) ?? 0) + 1);
+    const durationMin = durationFor(ctx, phase, template.share);
+    const exercises = template.exerciseSlugs?.length
+      ? prescribe(ctx, template.exerciseSlugs, true, phase).map((exercise) => ({
+          ...exercise,
+          sets: phase === "taper" || phase === "recovery" ? 2 : 3,
+          reps: "8-12",
+          restSeconds: 75,
+        }))
+      : template.sport === "strength" || template.sport === "bodybuilding"
+        ? strengthExercises(ctx, Boolean(template.strengthLower), phase, weekIndex)
+        : [];
+    placed.push({
+      date,
+      sport: template.sport,
+      title: template.title,
+      objective: template.objective,
+      durationMin,
+      intensity: template.intensity,
+      expectedLoad: sessionLoad(durationMin, template.intensity, template.sport),
+      importance: template.importance,
+      recoveryHours: template.recoveryHours,
+      why: template.why,
+      lowerBody: template.lowerBody && template.sport !== "swimming",
+      quality: template.quality,
+      phase,
+      structure: { ...template.structure, exercises: exercises.map((exercise) => exercise.slug) },
+      zones: template.zones,
+      exercises,
+    });
   }
-  for (const template of templates.filter((item) => pairUpper && templateKey(item) === "upper")) {
-    let bestDate: string | null = null;
-    let bestScore = 0;
-    for (const date of pool) {
-      const daySessions = placed.filter((session) => session.date === date);
-      if (daySessions.some((session) => {
-        const focus = strengthFocus(session);
-        return focus === "upper" || focus === "lower" || focus === "both";
-      })) continue;
-      const score = daySessions.reduce((best, session) => Math.max(best, partnerScore(session)), 0);
-      if (score > bestScore) {
-        bestScore = score;
-        bestDate = date;
-      }
-    }
-    if (!bestDate) bestDate = pool.find((date) => !placed.some((session) => session.date === date)) ?? null;
-    if (!bestDate) continue;
-    const session = realizeTemplate(ctx, template, bestDate, phase, weekIndex);
+  for (const session of placed) {
+    if (strengthFocus(session) !== "upper") continue;
     const partner = placed
-      .filter((item) => item.date === bestDate)
+      .filter((item) => item.date === session.date && item !== session)
       .sort((a, b) => partnerScore(b) - partnerScore(a))[0];
     if (partner && partnerScore(partner) > 0) {
       const partnerName = partner.sport === "running" ? "running" : partner.sport.replaceAll("_", " ");
       session.why = `Upper-body strength shares this day with ${partnerName} so the sessions complement each other. Upper-body and lower-body lifting stay on different days.`;
     }
-    placed.push(session);
   }
-  fitDayBudget(ctx, placed);
-  return placed
+  return balanceDoubledDays(placed, ctx.minutesPerDay)
     .map((session) => withSessionStretches(session, ctx.avoidExercises))
-    .sort((a, b) => a.date.localeCompare(b.date) || Number(b.importance === "key") - Number(a.importance === "key"));
+    .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
 
 export function phaseForWeek(weekIndex: number, totalWeeks: number): Phase {
@@ -1109,12 +1275,21 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
   const hasRun = isTri(ctx) || wants(ctx, "running");
   const hasBike = isTri(ctx) || wants(ctx, "cycling");
   const hasSwim = (isTri(ctx) || wants(ctx, "swimming")) && ctx.poolAccess;
+  const scheduled = new Set(sessions.map((session) => session.sport));
   const trainingNotes = [
+    scheduled.has("bodybuilding")
+      ? "Bodybuilding is its own hypertrophy work in this plan (push, pull, and legs). It is not replaced by a general strength session, and the leg day stays away from the long run and interval running."
+      : "",
     hasRun || hasBike || hasSwim ? "Heavy lower-body strength is kept away from interval running and the long run." : "",
-    "Upper-body strength shares a day with a complementary sport such as running. Upper-body and lower-body lifting stay on different days.",
     "Every workout includes stretching.",
     hasSwim ? "Swimming is used as cardiovascular work that does not beat up the legs the way running does." : "",
     courtNames.length ? `Practice for ${joinNames(courtNames)} is in this plan. Match-speed days stay away from heavy squats.` : "",
+    allowsTwoSessions(ctx)
+      ? "You said more than one workout on the same day is fine, so some days have two sessions and those two share the minutes you set for the day. Upper-body strength shares a day with a complementary sport such as running, and upper-body and lower-body lifting stay on different days."
+      : "Each training day has one workout, so every selected sport gets its own session. Upper-body and lower-body lifting stay on different days.",
+    sportsRotate(ctx, sessions, endDate)
+      ? "There are more selected sports than training days, so the extra sports rotate through the plan and every one of them still appears."
+      : "",
   ].filter(Boolean);
   const explanation = [
     `This is one plan for ${ctx.sports.length ? joinNames(ctx.sports) : "general training"}.`,

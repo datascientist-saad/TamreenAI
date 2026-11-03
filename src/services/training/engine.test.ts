@@ -102,10 +102,94 @@ test("onboarding on Saturday still schedules that day", () => {
     bikeAccess: false,
   });
   const today = plan.sessions.filter((item) => item.date === "2026-10-17");
-  assert.ok(today.some((item) => item.sport === "padel"));
-  assert.equal(today.some((item) => strengthFocus(item) === "lower"), false);
-  assert.ok(today.some((item) => strengthFocus(item) === "upper"));
+  assert.equal(today.length, 1);
+  assert.equal(today[0]?.sport, "padel");
   assert.ok(today.every((item) => item.exercises.some((exercise) => exercise.slug.endsWith("_stretch"))));
+});
+
+test("selected bodybuilding stays in the plan beside triathlon", () => {
+  const plan = buildPlan({
+    ...athlete,
+    sports: ["padel", "bodybuilding", "cycling", "strength", "swimming", "triathlon", "running"],
+    primaryGoal: "ironman_70_3",
+    goals: ["ironman_70_3", "build_muscle"],
+    eventDate: null,
+    eventName: null,
+    preferredDays: [0, 1, 2, 3, 4, 5],
+    minutesPerDay: 60,
+    multipleSessionsPerDay: false,
+  });
+  const sports = new Set(plan.sessions.map((item) => item.sport));
+  for (const sport of ["bodybuilding", "strength", "padel", "running", "cycling", "swimming"] as const) {
+    assert.ok(sports.has(sport), sport);
+  }
+  const week = plan.sessions.filter((item) => item.date >= "2026-10-05" && item.date <= "2026-10-11");
+  const bodybuilding = week.filter((item) => item.sport === "bodybuilding");
+  assert.ok(bodybuilding.length >= 1);
+  assert.ok(bodybuilding.every((item) => item.title.startsWith("Bodybuilding")));
+  assert.ok(bodybuilding.some((item) => {
+    const lifts = item.exercises.filter((exercise) => !exercise.slug.endsWith("_stretch"));
+    return lifts.length > 0 && lifts.every((exercise) => exercise.reps === "8-12");
+  }));
+  const perDay = new Map<string, number>();
+  for (const item of plan.sessions) perDay.set(item.date, (perDay.get(item.date) ?? 0) + 1);
+  assert.ok([...perDay.values()].every((count) => count === 1));
+  assert.match(plan.explanation, /one workout/i);
+  assert.match(plan.explanation, /bodybuilding/i);
+});
+
+test("two workouts share a day only after the athlete agrees", () => {
+  const shared = {
+    ...athlete,
+    sports: ["padel", "bodybuilding", "cycling", "strength", "swimming", "triathlon", "running"] as AthleteContext["sports"],
+    primaryGoal: "ironman_70_3",
+    goals: ["ironman_70_3", "build_muscle"],
+    eventDate: null,
+    eventName: null,
+    preferredDays: [0, 1, 2, 3, 4, 5],
+    minutesPerDay: 60,
+  };
+  const single = buildPlan({ ...shared, multipleSessionsPerDay: false });
+  const doubled = buildPlan({ ...shared, multipleSessionsPerDay: true });
+  const counts = (plan: ReturnType<typeof buildPlan>) => {
+    const perDay = new Map<string, number>();
+    for (const item of plan.sessions) perDay.set(item.date, (perDay.get(item.date) ?? 0) + 1);
+    return [...perDay.values()];
+  };
+  assert.ok(counts(single).every((count) => count === 1));
+  const doubledCounts = counts(doubled);
+  assert.ok(doubledCounts.some((count) => count === 2));
+  assert.ok(doubledCounts.every((count) => count <= 2));
+  const byDate = new Map<string, number>();
+  for (const item of doubled.sessions) byDate.set(item.date, (byDate.get(item.date) ?? 0) + item.durationMin);
+  for (const [date, minutes] of byDate) {
+    const sessions = doubled.sessions.filter((item) => item.date === date);
+    if (sessions.length === 2) assert.ok(minutes <= 60, `${date} used ${minutes} minutes`);
+  }
+  assert.ok(new Set(doubled.sessions.map((item) => item.sport)).has("bodybuilding"));
+  assert.match(doubled.explanation, /more than one workout/i);
+});
+
+test("sports that do not fit in one week still appear in the plan", () => {
+  const plan = buildPlan({
+    ...athlete,
+    sports: ["padel", "bodybuilding", "cycling", "strength", "swimming", "triathlon", "running"],
+    primaryGoal: "ironman_70_3",
+    goals: ["ironman_70_3"],
+    eventDate: null,
+    eventName: null,
+    preferredDays: [1, 3, 5],
+    minutesPerDay: 60,
+    multipleSessionsPerDay: false,
+  });
+  const sports = new Set(plan.sessions.map((item) => item.sport));
+  for (const sport of ["bodybuilding", "strength", "padel", "running", "cycling", "swimming"] as const) {
+    assert.ok(sports.has(sport), sport);
+  }
+  const perDay = new Map<string, number>();
+  for (const item of plan.sessions) perDay.set(item.date, (perDay.get(item.date) ?? 0) + 1);
+  assert.ok([...perDay.values()].every((count) => count === 1));
+  assert.match(plan.explanation, /rotate/i);
 });
 
 test("hybrid plan includes several sports and explains the event", () => {
@@ -128,6 +212,7 @@ test("upper-body strength shares a day with running and not with lower-body lift
     goals: ["improve_5k", "increase_strength"],
     preferredDays: [1, 3, 6],
     minutesPerDay: 60,
+    multipleSessionsPerDay: true,
     poolAccess: false,
     bikeAccess: false,
     eventDate: null,

@@ -3,12 +3,14 @@ import test from "node:test";
 import { sessionLoad, strengthFocus, weekday, type AthleteContext } from "@/services/training/engine";
 import { readModelJson } from "./openai";
 import {
+  allowedSports,
   chatPlanMessages,
   describePlanSource,
   materializeChatPlan,
   planCoversSelections,
   planInputs,
   planRespectsPairing,
+  requiredSports,
   resolvePlan,
   type StoredSelections,
 } from "./plan";
@@ -156,7 +158,8 @@ function draft() {
 }
 
 test("ChatGPT draft is placed only on saved days and drops disallowed work", () => {
-  const plan = materializeChatPlan(athlete, draft(), library);
+  const paired = { ...athlete, multipleSessionsPerDay: true };
+  const plan = materializeChatPlan(paired, draft(), library);
   assert.ok(plan);
   assert.equal(plan?.name, "Padel and strength plan");
   assert.ok(plan && plan.sessions.length >= 4);
@@ -173,14 +176,14 @@ test("ChatGPT draft is placed only on saved days and drops disallowed work", () 
   assert.ok(strength?.exercises.some((exercise) => exercise.slug === "plank"));
   assert.equal(strength?.exercises.some((exercise) => exercise.slug === "back_squat"), false);
   assert.ok(strength?.exercises.some((exercise) => exercise.slug.endsWith("_stretch")));
-  assert.equal(plan ? planRespectsPairing(plan, athlete) : false, true);
+  assert.equal(plan ? planRespectsPairing(plan, paired) : false, true);
   assert.equal(plan?.sessions.some((session) => session.structure.source !== "chatgpt"), false);
   const visible = plan?.sessions.filter((session) => session.date >= "2026-10-17" && session.date <= "2026-10-23") ?? [];
   const visibleSports = new Set(visible.map((session) => session.sport));
   assert.ok(visibleSports.has("padel"));
   assert.ok(visibleSports.has("strength"));
   assert.equal(visible.some((session) => session.title === "Tempo run"), false);
-  assert.equal(plan ? planCoversSelections(plan, athlete) : false, true);
+  assert.equal(plan ? planCoversSelections(plan, paired) : false, true);
 });
 
 test("a draft that does not match the selections is rejected", () => {
@@ -218,7 +221,7 @@ test("resolvePlan keeps the engine when ChatGPT cannot be used", async () => {
   assert.equal(broken.source.fallbackReason, "chatgpt_unavailable");
 
   const accepted = await resolvePlan({
-    ctx: athlete,
+    ctx: { ...athlete, multipleSessionsPerDay: true },
     selections,
     exercises: library,
     complete: async () => ({ draft: draft(), model: "gpt-4.1-mini" }),
@@ -283,6 +286,7 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
     sports: ["running", "strength"],
     primaryGoal: "improve_5k",
     goals: ["improve_5k", "increase_strength"],
+    multipleSessionsPerDay: true,
   };
   const runnerSelections = { ...selections, sports: ["running", "strength"], primaryGoal: "improve_5k", goals: ["improve_5k", "increase_strength"] };
   const resolved = await resolvePlan({
@@ -390,6 +394,26 @@ test("a single tempo run is replaced by the saved sports and days", async () => 
   assert.ok(paired.some((session) => session.sport === "running"));
   assert.ok(paired.some((session) => strengthFocus(session) === "upper"));
   assert.equal(paired.some((session) => strengthFocus(session) === "lower"), false);
+});
+
+test("bodybuilding stays allowed beside triathlon and strength", () => {
+  const hybrid: AthleteContext = {
+    ...athlete,
+    sports: ["padel", "bodybuilding", "cycling", "strength", "swimming", "triathlon", "running"],
+    poolAccess: true,
+    bikeAccess: true,
+    gymAccess: true,
+  };
+  const allowed = allowedSports(hybrid);
+  const required = requiredSports(hybrid);
+  assert.ok(allowed.includes("bodybuilding"));
+  assert.ok(allowed.includes("strength"));
+  assert.ok(required.includes("bodybuilding"));
+  assert.ok(required.includes("strength"));
+  assert.ok(required.includes("padel"));
+  const messages = chatPlanMessages(hybrid, selections, library);
+  assert.match(messages.system, /Bodybuilding stays a separate sport/);
+  assert.match(messages.user, /"multipleSessionsPerDay":false/);
 });
 
 test("fenced model JSON still parses", () => {
