@@ -17,7 +17,13 @@ import { saveLiveSession } from "@/server/actions";
 
 const SAMPLE_CAP = 3600;
 
-export function LiveSession({ slug }: { slug: string }) {
+export function LiveSession({
+  slug,
+  prescription,
+}: {
+  slug: string;
+  prescription?: { workoutTitle: string; name: string; sets: number; reps: string };
+}) {
   const exercise = LIVE_EXERCISES.find((item) => item.slug === slug);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -220,7 +226,9 @@ export function LiveSession({ slug }: { slug: string }) {
         </div>
       </section>
       <article className="app-card p-4">
-        <p className="eyebrow">{exercise.name}</p>
+        <p className="eyebrow">{prescription ? "Today's movement" : exercise.name}</p>
+        <h2 className="mt-1 text-xl font-extrabold">{prescription?.name ?? exercise.name}</h2>
+        {prescription ? <p className="text-sm text-muted">{prescription.workoutTitle} · {prescription.sets} × {prescription.reps}</p> : null}
         <p className="mt-2">{exercise.setup}</p>
         <p className="mt-3 text-sm font-bold">Coaching cues</p>
         <ul className="mt-2 grid gap-1 text-sm text-muted">

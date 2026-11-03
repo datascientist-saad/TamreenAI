@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { AvatarMark } from "@/components/avatar";
 import { PageFrame } from "@/components/page";
 import { GoogleLinkButton } from "@/features/settings/google-link";
 import { WhoopConnect } from "@/features/settings/whoop-connect";
+import { googlePhotoUrl, portraitChoice } from "@/lib/portrait";
 import { sportLabels, type SportSlug } from "@/lib/sports";
 import { submitFeedback, signOut } from "@/server/actions";
 import { requireUser } from "@/server/guard";
@@ -35,8 +37,8 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
   const { supabase, user } = await requireUser();
   const [{ data: roles }, { data: profile }, { data: athlete }, { data: sportRows }, { data: primaryGoalRow }, whoop] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", user.id).is("revoked_at", null),
-    supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
-    supabase.from("athlete_profiles").select("preferred_days, minutes_per_day, gym_access, pool_access, bike_access").eq("user_id", user.id).maybeSingle(),
+    supabase.from("profiles").select("full_name, avatar_path, updated_at").eq("id", user.id).maybeSingle(),
+    supabase.from("athlete_profiles").select("preferred_days, minutes_per_day").eq("user_id", user.id).maybeSingle(),
     supabase.from("athlete_sports").select("sports(slug)").eq("user_id", user.id),
     supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", user.id).eq("is_primary", true).maybeSingle(),
     loadWhoopSnapshot(supabase, user.id, 1),
@@ -67,24 +69,25 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
     const index = typeof day === "number" ? day : Number(day);
     return Number.isInteger(index) && index >= 0 && index <= 6 ? [index] : [];
   }).sort((a, b) => a - b).map((day) => dayNames[day]);
-  const access = [
-    athlete?.gym_access ? "Gym" : null,
-    athlete?.pool_access ? "Pool" : null,
-    athlete?.bike_access ? "Bike" : null,
-  ].filter(Boolean);
+  const portrait = portraitChoice({
+    avatarPath: profile?.avatar_path,
+    updatedAt: profile?.updated_at,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? null,
+    googleUrl: googlePhotoUrl(user),
+  });
 
   return (
     <PageFrame eyebrow="More" title="Account and setup" lede="Profile, goals, and WHOOP live here. Everything else stays one tap away.">
-      <section className="app-card grid gap-3 p-4">
-        <h2 className="font-bold">Profile</h2>
-        <p className="text-sm text-muted">
-          {profile?.full_name || "Athlete"} · {user.email}
-        </p>
-        <p className="text-sm">Sports: {savedSports.length ? savedSports.join(", ") : "Not set yet"}</p>
-        <p className="text-sm">Days: {savedDays.length ? savedDays.join(", ") : "Not set yet"} · {athlete?.minutes_per_day ?? 60} min</p>
-        <p className="text-sm text-muted">{access.length ? access.join(" · ") : "No equipment access saved"}</p>
-        <Link className="btn btn-ghost w-fit" href="/onboarding?focus=profile">Edit profile</Link>
-      </section>
+      <Link href="/profile" className="app-card grid grid-cols-[auto_1fr] items-center gap-4 p-4">
+        <AvatarMark name={profile?.full_name || "Athlete"} src={portrait.src} size={64} />
+        <span>
+          <span className="block text-lg font-extrabold">{profile?.full_name || "Athlete"}</span>
+          <span className="block text-sm text-muted">{user.email}</span>
+          <span className="mt-1 block text-sm">Sports: {savedSports.length ? savedSports.join(", ") : "Not set yet"}</span>
+          <span className="block text-sm">Days: {savedDays.length ? savedDays.join(", ") : "Not set yet"} · {athlete?.minutes_per_day ?? 60} min</span>
+          <span className="block text-sm font-bold text-maroon">Open profile</span>
+        </span>
+      </Link>
 
       <section className="app-card grid gap-3 p-4">
         <h2 className="font-bold">Goals</h2>

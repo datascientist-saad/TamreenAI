@@ -1,5 +1,6 @@
 import { HomeDashboard } from "@/features/dashboard/home-dashboard";
 import { loadHome } from "@/server/queries";
+import { workoutHasLiveCamera } from "@/services/live/catalog";
 import { recommendedWeeklyLoad } from "@/services/training/engine";
 
 export default async function HomePage() {
@@ -38,7 +39,15 @@ export default async function HomePage() {
       hour={data.hour}
       today={data.today}
       isDemo={Boolean(data.profile?.is_demo)}
-      todayWorkouts={data.todayWorkouts}
+      todayWorkouts={data.todayWorkouts.map((workout) => ({
+        id: workout.id,
+        sport: workout.sport,
+        title: workout.title,
+        duration_min: workout.duration_min,
+        objective: workout.objective,
+        why_text: workout.why_text,
+        camera: workoutHasLiveCamera(workout.workout_exercises),
+      }))}
       weekWorkouts={data.weekWorkouts}
       readiness={data.readiness}
       scores={data.scores}

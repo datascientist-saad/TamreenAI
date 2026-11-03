@@ -29,9 +29,10 @@ import {
 import { openAIConfigured, requestChatDraft } from "@/services/ai/openai";
 import { planInputs, resolvePlan, type StoredSelections } from "@/services/ai/plan";
 import { sportSlugs } from "@/lib/sports";
-import { todayInTimeZone } from "@/lib/utils";
+import { shiftIsoDate, todayInTimeZone } from "@/lib/utils";
 import { MIN_POSE_FRAMES } from "@/services/live/geometry";
 import { LIVE_EXERCISES, POSE_MODEL_NAME, type ModelFormPayload } from "@/services/live/pose";
+import { matchScheduleChanges, optimizeExplanation } from "@/services/training/schedule";
 import { requireUser } from "./guard";
 
 async function limit(action: string, maxCalls: number, windowSeconds: number) {
@@ -62,12 +63,26 @@ function savedMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function safeRevalidate(path: string) {
+function safeRevalidate(path: string, type?: "page" | "layout") {
   try {
-    revalidatePath(path);
+    revalidatePath(path, type);
   } catch {
     // The plan is already stored. A cache refresh must not turn the save into a failed action.
   }
+}
+
+function refreshTraining() {
+  safeRevalidate("/home");
+  safeRevalidate("/plan");
+  safeRevalidate("/calendar");
+  safeRevalidate("/live");
+  safeRevalidate("/conflicts");
+}
+
+function refreshProfile() {
+  safeRevalidate("/profile", "layout");
+  safeRevalidate("/home", "layout");
+  safeRevalidate("/more");
 }
 
 const onboardingSchema = z.object({
@@ -944,26 +959,28 @@ export async function logRecovery(input: {
 }
 
 export async function moveWorkout(id: string, date: string, confirm: boolean) {
-  const { supabase, user } = await limit("move_workout", 40, 3600);
+  const { supabase, user } = await limit("move_workout", 120, 3600);
   const { data: workout } = await supabase.from("workouts").select("*").eq("id", id).eq("user_id", user.id).single();
   if (!workout) throw new Error("Workout not found.");
+  if (workout.status === "completed") throw new Error("Completed sessions stay on the day they were done.");
   const { data: nearby } = await supabase.from("workouts").select("*").eq("user_id", user.id).is("deleted_at", null).gte("scheduled_date", date).lte("scheduled_date", date);
   const draft: PlannedSession[] = [toPlanned({ ...workout, scheduled_date: date }), ...(nearby ?? []).filter((row) => row.id !== id).map(toPlanned)];
   const conflicts = findConflicts(draft);
   if (conflicts.length && !confirm) {
     return { ok: false, conflicts };
   }
-  await supabase.from("workouts").update({ scheduled_date: date, moved_from: workout.scheduled_date, status: "moved" }).eq("id", id);
-  revalidatePath("/calendar");
-  revalidatePath("/plan");
+  const { error } = await supabase.from("workouts").update({ scheduled_date: date, moved_from: workout.scheduled_date, status: "moved" }).eq("id", id);
+  if (error) throw new Error(error.message);
+  refreshTraining();
   return { ok: true, conflicts };
 }
 
-export async function setWorkoutStatus(id: string, status: "skipped" | "completed" | "missed") {
-  const { supabase, user } = await limit("workout_status", 40, 3600);
+export async function setWorkoutStatus(id: string, status: "skipped" | "completed" | "missed" | "planned") {
+  const { supabase, user } = await limit("workout_status", 80, 3600);
   const { data: workout } = await supabase.from("workouts").select("*").eq("id", id).eq("user_id", user.id).single();
   if (!workout) throw new Error("Workout not found.");
-  await supabase.from("workouts").update({ status }).eq("id", id);
+  const { error } = await supabase.from("workouts").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
   if (status === "missed" || status === "skipped") {
     const { data: upcoming } = await supabase.from("workouts").select("*").eq("user_id", user.id).eq("status", "planned").is("deleted_at", null).gt("scheduled_date", workout.scheduled_date).order("scheduled_date").limit(4);
     const { data: recovery } = await supabase.from("readiness_scores").select("overall").eq("user_id", user.id).order("scored_on", { ascending: false }).limit(1).maybeSingle();
@@ -978,36 +995,121 @@ export async function setWorkoutStatus(id: string, status: "skipped" | "complete
       status: "pending",
     });
   }
-  revalidatePath("/home");
-  revalidatePath("/plan");
-  return { ok: true };
+  refreshTraining();
+  return { ok: true, status };
 }
 
 export async function optimizeOpenConflicts() {
   const { supabase, user } = await limit("optimize", 12, 3600);
   const ctx = await contextFor(user.id, supabase);
   const today = ctx.startDate;
-  const { data: rows } = await supabase.from("workouts").select("*").eq("user_id", user.id).eq("status", "planned").is("deleted_at", null).gte("scheduled_date", today).order("scheduled_date").limit(12);
-  const sessions = (rows ?? []).map(toPlanned);
-  const optimized = optimizeWeek(ctx, sessions);
-  for (const change of optimized.changes) {
-    const row = (rows ?? []).find((item) => item.title === change.title && item.scheduled_date === change.fromDate);
-    if (!row) continue;
-    await supabase.from("workouts").update({ scheduled_date: change.toDate, moved_from: change.fromDate, why_text: `${row.why_text} ${change.reason}` }).eq("id", row.id);
+  const end = shiftIsoDate(today, 13);
+  const { data: rows } = await supabase
+    .from("workouts")
+    .select("*")
+    .eq("user_id", user.id)
+    .in("status", ["planned", "moved"])
+    .is("deleted_at", null)
+    .gte("scheduled_date", today)
+    .lte("scheduled_date", end)
+    .order("scheduled_date");
+  const source = rows ?? [];
+  if (!source.length) {
+    return { ok: true as const, explanation: "There are no upcoming sessions to move.", changes: [], remaining: 0 };
   }
-  await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
-  await supabase.from("ai_recommendations").insert({
-    user_id: user.id,
-    kind: "schedule_optimization",
-    title: "Schedule optimized",
-    body: optimized.explanation,
-    factors: optimized.changes.map((change) => ({ label: change.title, detail: `${change.fromDate} → ${change.toDate}. ${change.reason}` })),
-    proposed_changes: optimized.changes,
-    status: "applied",
+  const sessions = source.map(toPlanned);
+  const before = findConflicts(sessions);
+  const optimized = optimizeWeek(ctx, sessions);
+  const applied = matchScheduleChanges(source, optimized.changes);
+  for (const move of applied) {
+    const { error } = await supabase
+      .from("workouts")
+      .update({ scheduled_date: move.toDate, moved_from: move.fromDate, status: "moved" })
+      .eq("id", move.id)
+      .eq("user_id", user.id);
+    if (error) throw new Error(error.message);
+  }
+  const projected = source.map((row) => {
+    const move = applied.find((item) => item.id === row.id);
+    return move ? { ...row, scheduled_date: move.toDate } : row;
   });
-  revalidatePath("/home");
-  revalidatePath("/plan");
-  return { explanation: optimized.explanation, changes: optimized.changes };
+  const after = findConflicts(projected.map(toPlanned));
+  const explanation = optimizeExplanation({
+    beforeCount: before.length,
+    afterCount: after.length,
+    changeCount: applied.length,
+    engineExplanation: optimized.explanation,
+  });
+  if (after.length === 0) {
+    await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
+  } else if (applied.length) {
+    await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
+    await supabase.from("training_conflicts").insert(after.map((conflict) => ({
+      user_id: user.id,
+      workout_a_id: projected[conflict.sessionA]?.id ?? null,
+      workout_b_id: projected[conflict.sessionB]?.id ?? null,
+      severity: conflict.severity,
+      title: conflict.title,
+      explanation: conflict.explanation,
+      recommendation: { factors: conflict.factors },
+      status: "open",
+    })));
+  }
+  if (applied.length || before.length) {
+    await supabase.from("ai_recommendations").insert({
+      user_id: user.id,
+      kind: "schedule_optimization",
+      title: "Schedule optimized",
+      body: explanation,
+      factors: applied.map((change) => ({ label: change.title, detail: `${change.fromDate} → ${change.toDate}. ${change.reason}` })),
+      proposed_changes: applied,
+      status: "applied",
+    });
+  }
+  refreshTraining();
+  return { ok: true as const, explanation, changes: applied, remaining: after.length };
+}
+
+export async function updateDisplayName(name: string) {
+  const { supabase, user } = await limit("profile_name", 30, 3600);
+  const fullName = z.string().trim().min(1).max(80).parse(name);
+  const { error } = await supabase.from("profiles").update({ full_name: fullName }).eq("id", user.id);
+  if (error) throw new Error(error.message);
+  refreshProfile();
+  return { ok: true as const, name: fullName };
+}
+
+export async function uploadAvatar(formData: FormData) {
+  const { supabase, user } = await limit("avatar", 20, 3600);
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("Choose a photo.");
+  if (file.size > 5 * 1024 * 1024) throw new Error("Photos stay under 5 MB.");
+  const type = file.type === "image/png" ? "image/png" : file.type === "image/webp" ? "image/webp" : file.type === "image/jpeg" ? "image/jpeg" : "";
+  if (!type) throw new Error("Use a JPEG, PNG, or WebP photo.");
+  const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+  const path = `${user.id}/avatar.${ext}`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const { error } = await supabase.storage.from("avatars").upload(path, bytes, { upsert: true, contentType: type });
+  if (error) throw new Error(error.message);
+  const others = ["jpg", "png", "webp"].filter((item) => item !== ext).map((item) => `${user.id}/avatar.${item}`);
+  if (others.length) await supabase.storage.from("avatars").remove(others);
+  const { error: profileError } = await supabase.from("profiles").update({ avatar_path: path }).eq("id", user.id);
+  if (profileError) throw new Error(profileError.message);
+  refreshProfile();
+  return { ok: true as const, path };
+}
+
+export async function clearAvatar() {
+  const { supabase, user } = await limit("avatar", 20, 3600);
+  await supabase.storage.from("avatars").remove([
+    `${user.id}/avatar.jpg`,
+    `${user.id}/avatar.png`,
+    `${user.id}/avatar.webp`,
+  ]);
+  const { error } = await supabase.from("profiles").update({ avatar_path: null }).eq("id", user.id);
+  if (error) throw new Error(error.message);
+  refreshProfile();
+  return { ok: true as const };
 }
 
 export async function askCoach(question: string) {
