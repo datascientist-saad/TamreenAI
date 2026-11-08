@@ -2,11 +2,13 @@ import Link from "next/link";
 import { AvatarMark } from "@/components/avatar";
 import { PageFrame } from "@/components/page";
 import { GoogleLinkButton } from "@/features/settings/google-link";
+import { StravaConnect } from "@/features/settings/strava-connect";
 import { WhoopConnect } from "@/features/settings/whoop-connect";
 import { googlePhotoUrl, portraitChoice } from "@/lib/portrait";
 import { sportLabels, type SportSlug } from "@/lib/sports";
 import { submitFeedback, signOut } from "@/server/actions";
 import { requireUser } from "@/server/guard";
+import { loadStravaSnapshot } from "@/services/wearables/strava-load";
 import { loadWhoopSnapshot } from "@/services/wearables/whoop-load";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -32,16 +34,17 @@ const explore = [
   ["/settings", "All settings"],
 ];
 
-export default async function MorePage({ searchParams }: { searchParams: Promise<{ whoop?: string }> }) {
+export default async function MorePage({ searchParams }: { searchParams: Promise<{ whoop?: string; strava?: string }> }) {
   const query = await searchParams;
   const { supabase, user } = await requireUser();
-  const [{ data: roles }, { data: profile }, { data: athlete }, { data: sportRows }, { data: primaryGoalRow }, whoop] = await Promise.all([
+  const [{ data: roles }, { data: profile }, { data: athlete }, { data: sportRows }, { data: primaryGoalRow }, whoop, strava] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", user.id).is("revoked_at", null),
     supabase.from("profiles").select("full_name, avatar_path, updated_at").eq("id", user.id).maybeSingle(),
     supabase.from("athlete_profiles").select("preferred_days, minutes_per_day").eq("user_id", user.id).maybeSingle(),
     supabase.from("athlete_sports").select("sports(slug)").eq("user_id", user.id),
     supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", user.id).eq("is_primary", true).maybeSingle(),
     loadWhoopSnapshot(supabase, user.id, 1),
+    loadStravaSnapshot(supabase, user.id),
   ]);
   const roleList = (roles ?? []).map((row) => row.role as string);
   const desks = [
@@ -77,7 +80,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
   });
 
   return (
-    <PageFrame eyebrow="More" title="Account and setup" lede="Profile, goals, and WHOOP live here. Everything else stays one tap away.">
+      <PageFrame eyebrow="More" title="Account and setup" lede="Profile, goals, WHOOP, and Strava live here. Everything else stays one tap away.">
       <Link href="/profile" className="app-card grid grid-cols-[auto_1fr] items-center gap-4 p-4">
         <AvatarMark name={profile?.full_name || "Athlete"} src={portrait.src} size={64} />
         <span>
@@ -102,6 +105,15 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
           connection={whoop.connection}
           metrics={whoop.metrics}
           noticeCode={query.whoop}
+        />
+      </section>
+
+      <section className="app-card grid gap-3 p-4">
+        <h2 className="font-bold">Strava</h2>
+        <StravaConnect
+          configured={strava.configured}
+          connection={strava.connection}
+          noticeCode={query.strava}
         />
       </section>
 

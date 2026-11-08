@@ -1,13 +1,18 @@
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/page";
+import { StravaUploadButton } from "@/features/settings/strava-upload-button";
 import { formatClock } from "@/lib/utils";
 import { sessionAnalyzer } from "@/services/live/pose";
 import { requireUser } from "@/server/guard";
+import { loadStravaSnapshot } from "@/services/wearables/strava-load";
 
 export default async function LiveReportPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { supabase, user } = await requireUser();
-  const { data: session } = await supabase.from("live_training_sessions").select("*").eq("id", id).eq("user_id", user.id).maybeSingle();
+  const [{ data: session }, strava] = await Promise.all([
+    supabase.from("live_training_sessions").select("*").eq("id", id).eq("user_id", user.id).maybeSingle(),
+    loadStravaSnapshot(supabase, user.id),
+  ]);
   if (!session) notFound();
   const { data: form } = await supabase.from("form_analysis").select("*").eq("session_id", id).maybeSingle();
   const summary = sessionAnalyzer.summarize({
@@ -75,6 +80,7 @@ export default async function LiveReportPage({ params }: { params: Promise<{ id:
           </p>
         </article>
       )}
+      <StravaUploadButton sessionId={id} stravaConnected={strava.connection.status === "connected"} />
     </PageFrame>
   );
 }

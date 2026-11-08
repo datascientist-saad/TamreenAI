@@ -1,17 +1,22 @@
 import { notFound } from "next/navigation";
 import { PageFrame } from "@/components/page";
 import { TrendChart } from "@/features/analytics/trend";
+import { StravaUploadButton } from "@/features/settings/strava-upload-button";
 import { formatClock, formatPace } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
+import { loadStravaSnapshot } from "@/services/wearables/strava-load";
 
 export default async function RunAnalysisPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { supabase, user } = await requireUser();
-  const { data: session } = await supabase
-    .from("running_sessions")
-    .select("session_type, distance_m, duration_seconds, avg_pace_sec_per_km, avg_hr, cadence, elevation_m, splits, consistency, aerobic_efficiency, insight, completed_workouts!inner(title, user_id, rpe, data_origin)")
-    .eq("completed_workout_id", id)
-    .maybeSingle();
+  const [{ data: session }, strava] = await Promise.all([
+    supabase
+      .from("running_sessions")
+      .select("session_type, distance_m, duration_seconds, avg_pace_sec_per_km, avg_hr, cadence, elevation_m, splits, consistency, aerobic_efficiency, insight, completed_workouts!inner(title, user_id, rpe, data_origin)")
+      .eq("completed_workout_id", id)
+      .maybeSingle(),
+    loadStravaSnapshot(supabase, user.id),
+  ]);
   const owner = Array.isArray(session?.completed_workouts) ? session.completed_workouts[0] : session?.completed_workouts;
   if (!session || owner?.user_id !== user.id) notFound();
   const splits = Array.isArray(session.splits) ? session.splits.map((value, index) => ({ label: `${index + 1}`, pace: Number(value) })) : [];
@@ -35,6 +40,7 @@ export default async function RunAnalysisPage({ params }: { params: Promise<{ id
         <h2 className="font-bold">Splits</h2>
         <TrendChart points={splits} dataKey="pace" />
       </article>
+      <StravaUploadButton workoutId={id} stravaConnected={strava.connection.status === "connected"} />
       <p className="text-sm text-muted">Heart-rate drift and a performance score stay blank unless both a start and finish heart rate, or enough splits, were logged. Nothing on this page is estimated to fill a gap.</p>
     </PageFrame>
   );
