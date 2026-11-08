@@ -80,7 +80,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
         />
       ) : (
         <div className="flex flex-wrap gap-2">
-          {workout.sport === "running" || workout.sport === "brick" ? <Link className="btn btn-primary" href={`/log/run?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log run</Link> : null}
+          {workout.sport === "running" || workout.sport === "brick" ? <Link className="btn btn-primary" href={`/log/run?workout=${workout.id}&title=${encodeURIComponent(workout.title)}&intensity=${encodeURIComponent(workout.intensity)}`}>Log run</Link> : null}
           {workout.sport === "cycling" || workout.sport === "brick" ? <Link className="btn btn-primary" href={`/log/ride?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log ride</Link> : null}
           {workout.sport === "swimming" ? <Link className="btn btn-primary" href={`/log/swim?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log swim</Link> : null}
           {workout.sport === "mobility" || workout.sport === "recovery" ? <Link className="btn btn-primary" href="/recovery">Log recovery</Link> : null}

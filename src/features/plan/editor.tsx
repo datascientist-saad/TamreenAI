@@ -287,11 +287,13 @@ export function PlanEditor({
                         <label className="mt-3 text-sm">
                           Move to
                           <input
+                            key={`${workout.id}-${workout.scheduled_date}`}
                             type="date"
-                            value={workout.scheduled_date}
+                            defaultValue={workout.scheduled_date}
                             disabled={busyId === workout.id}
-                            onChange={(event) => {
-                              if (event.target.value) void relocate(workout.id, event.target.value);
+                            onBlur={(event) => {
+                              const next = event.target.value;
+                              if (next && next !== workout.scheduled_date) void relocate(workout.id, next);
                             }}
                           />
                         </label>

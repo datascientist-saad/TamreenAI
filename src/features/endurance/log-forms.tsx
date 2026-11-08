@@ -25,9 +25,24 @@ function durationFrom(formData: FormData): { seconds: number } | { error: string
   return { seconds: parsed.seconds };
 }
 
-export function RunForm({ workoutId, title }: { workoutId: string | null; title: string }) {
+function intensityToSessionType(intensity: string): string {
+  const map: Record<string, string> = {
+    recovery: "recovery",
+    easy: "easy",
+    moderate: "easy",
+    tempo: "tempo",
+    threshold: "threshold",
+    vo2: "vo2",
+    race: "race",
+    max: "vo2",
+  };
+  return map[intensity] ?? "easy";
+}
+
+export function RunForm({ workoutId, title, plannedType }: { workoutId: string | null; title: string; plannedType?: string }) {
   const router = useRouter();
   const state = useSave();
+  const defaultSessionType = plannedType ? intensityToSessionType(plannedType) : "easy";
   async function submit(formData: FormData) {
     state.setPending(true);
     state.setError(null);
@@ -47,7 +62,7 @@ export function RunForm({ workoutId, title }: { workoutId: string | null; title:
       const result = await logRun({
         workoutId,
         title: String(formData.get("title") || title),
-        sessionType: String(formData.get("sessionType") || "easy"),
+        sessionType: String(formData.get("sessionType") || defaultSessionType),
         distanceM: Number(formData.get("distanceM")),
         durationSeconds: duration.seconds,
         avgHr: numberOrNull(formData.get("avgHr")),
@@ -69,7 +84,7 @@ export function RunForm({ workoutId, title }: { workoutId: string | null; title:
     <form action={submit} className="grid gap-3">
       <label>Title<input name="title" defaultValue={title} required /></label>
       <label>Type
-        <select name="sessionType" defaultValue="easy">
+        <select name="sessionType" defaultValue={defaultSessionType}>
           {["easy", "recovery", "long", "tempo", "threshold", "intervals", "vo2", "race", "brick"].map((type) => <option key={type}>{type}</option>)}
         </select>
       </label>

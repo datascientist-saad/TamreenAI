@@ -42,7 +42,7 @@ export function WhoopConnect({
           <a className="btn btn-primary" href="/api/whoop/connect">{linked ? "Reconnect WHOOP" : "Connect WHOOP"}</a>
         ) : (
           <p className="text-sm text-muted">
-            Add WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, and a WHOOP_TOKEN_SECRET of at least 16 characters. Register /api/whoop/callback as the redirect URL in the WHOOP developer dashboard.
+            WHOOP integration is not available in this version of Tamreen. Check back later or contact support if you expected this to be enabled.
           </p>
         )}
         {linked ? (

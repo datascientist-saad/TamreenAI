@@ -196,6 +196,8 @@ export interface ReadinessInput {
   chronicLoad: number;
   lowerBodyLoad48h: number;
   hardEnduranceLoad48h: number;
+  /** ISO date string of when the check-in was logged. If omitted, freshness is not checked. */
+  loggedOn?: string | null;
 }
 
 export interface ReadinessResult {
@@ -1235,7 +1237,8 @@ function mondayOf(iso: string): string {
 
 export function buildPlan(ctx: AthleteContext): BuiltPlan {
   const eventWeeks = ctx.eventDate ? Math.max(1, Math.ceil(daysBetween(ctx.startDate, ctx.eventDate) / 7)) : 8;
-  const weeks = clamp(eventWeeks, 4, 16);
+  // Allow up to 26 weeks so distant events (e.g. 6 months away) are covered by the taper.
+  const weeks = clamp(eventWeeks, 4, 26);
   const origin = mondayOf(ctx.startDate);
   const sessions: PlannedSession[] = [];
   const blocks: TrainingBlock[] = [];
@@ -1262,7 +1265,11 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
       ),
     );
   }
-  const endDate = addDays(ctx.startDate, weeks * 7 - 1);
+  // Align the plan end with the event date when it falls within the horizon.
+  const calculatedEnd = addDays(ctx.startDate, weeks * 7 - 1);
+  const endDate = ctx.eventDate && ctx.eventDate > ctx.startDate && ctx.eventDate <= calculatedEnd
+    ? ctx.eventDate
+    : calculatedEnd;
   blocks.push({
     phase: currentPhase,
     name: blockName(currentPhase),
@@ -1418,13 +1425,56 @@ export function findConflicts(sessions: PlannedSession[]): ConflictFinding[] {
   return findings;
 }
 
-export function optimizeWeek(ctx: AthleteContext, sessions: PlannedSession[]): { sessions: PlannedSession[]; changes: ScheduleChange[]; explanation: string } {
-  if (!sessions.length) {
-    return { sessions, changes: [], explanation: "There are no sessions to move." };
+export interface OptimizeViolation {
+  kind: "capacity" | "future_compression" | "recovery_week" | "completed_session";
+  detail: string;
+}
+
+export interface OptimizeResult {
+  sessions: PlannedSession[];
+  changes: ScheduleChange[];
+  explanation: string;
+  violations: OptimizeViolation[];
+  feasible: boolean;
+}
+
+function dailyTotals(sessions: PlannedSession[]): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const session of sessions) {
+    totals.set(session.date, (totals.get(session.date) ?? 0) + session.durationMin);
   }
-  const weekStart = addDays(sessions[0].date, -((weekday(sessions[0].date) + 6) % 7));
-  const phase = sessions[0].phase;
-  const templates: Template[] = sessions.map((session) => ({
+  return totals;
+}
+
+export function optimizeWeek(ctx: AthleteContext, sessions: PlannedSession[], horizonDays = 14): OptimizeResult {
+  if (!sessions.length) {
+    return { sessions, changes: [], explanation: "There are no sessions to move.", violations: [], feasible: true };
+  }
+
+  // Never move completed sessions.
+  const completedViolations: OptimizeViolation[] = sessions
+    .filter((session) => (session as PlannedSession & { status?: string }).status === "completed")
+    .map((session) => ({ kind: "completed_session" as const, detail: `${session.title} on ${session.date} is completed and will not be moved.` }));
+
+  const mutableSessions = sessions.filter((session) => (session as PlannedSession & { status?: string }).status !== "completed");
+
+  // Enforce horizon: only move sessions within [today, today + horizonDays].
+  const horizonEnd = addDays(ctx.startDate, horizonDays);
+  const futureCompressionViolations: OptimizeViolation[] = mutableSessions
+    .filter((session) => session.date > horizonEnd)
+    .map((session) => ({ kind: "future_compression" as const, detail: `${session.title} on ${session.date} is beyond the ${horizonDays}-day horizon and will not be moved.` }));
+
+  const inScope = mutableSessions.filter((session) => session.date <= horizonEnd && session.date >= ctx.startDate);
+  const outOfScope = mutableSessions.filter((session) => session.date > horizonEnd || session.date < ctx.startDate);
+
+  if (!inScope.length) {
+    const allViolations = [...completedViolations, ...futureCompressionViolations];
+    return { sessions, changes: [], explanation: "There are no sessions within the scheduling window.", violations: allViolations, feasible: false };
+  }
+
+  const weekStart = addDays(inScope[0].date, -((weekday(inScope[0].date) + 6) % 7));
+  const phase = inScope[0].phase;
+  const templates: Template[] = inScope.map((session) => ({
     sport: session.sport,
     title: session.title,
     objective: session.objective,
@@ -1439,34 +1489,62 @@ export function optimizeWeek(ctx: AthleteContext, sessions: PlannedSession[]): {
     structure: session.structure,
     strengthLower: session.lowerBody && (session.sport === "strength" || session.sport === "bodybuilding"),
   }));
+
   const placed = placeTemplates(ctx, weekStart, templates, phase, 0);
+
+  // Validate capacity: placed sessions must not exceed minutesPerDay on any day.
+  const placedTotals = dailyTotals(placed);
+  const capacityViolations: OptimizeViolation[] = [];
+  for (const [date, total] of placedTotals) {
+    if (total > ctx.minutesPerDay) {
+      capacityViolations.push({
+        kind: "capacity",
+        detail: `${date} would have ${total} planned minutes, exceeding the ${ctx.minutesPerDay} min/day limit. Sessions on this day were not moved.`,
+      });
+    }
+  }
+
+  // If any capacity violations, do not apply changes on affected days.
+  const violatingDays = new Set(capacityViolations.map((v) => v.detail.split(" ")[0]));
+  const safePlaced = placed.filter((session) => !violatingDays.has(session.date));
+
   const changes: ScheduleChange[] = [];
   const used = new Set<number>();
-  for (const next of placed) {
-    const matchIndex = sessions.findIndex((session, index) => !used.has(index) && session.title === next.title);
+  for (const next of safePlaced) {
+    const matchIndex = inScope.findIndex((session, index) => !used.has(index) && session.title === next.title);
     if (matchIndex < 0) continue;
     used.add(matchIndex);
-    if (sessions[matchIndex].date !== next.date) {
+    if (inScope[matchIndex].date !== next.date) {
       changes.push({
-        fromDate: sessions[matchIndex].date,
+        fromDate: inScope[matchIndex].date,
         toDate: next.date,
         title: next.title,
         reason: "Moved to respect recovery between lower-body strength and harder running.",
       });
     }
   }
-  const merged = placed.map((session) => {
-    const original = sessions.find((item) => item.title === session.title);
-    return original
-      ? { ...original, date: session.date, phase }
-      : session;
-  });
+
+  const merged = [
+    ...inScope.map((session) => {
+      if (violatingDays.has(session.date)) return session;
+      const change = changes.find((c) => c.title === session.title && c.fromDate === session.date);
+      return change ? { ...session, date: change.toDate, phase } : session;
+    }),
+    ...outOfScope,
+    ...sessions.filter((s) => (s as PlannedSession & { status?: string }).status === "completed"),
+  ];
+
+  const allViolations = [...completedViolations, ...futureCompressionViolations, ...capacityViolations];
+  const feasible = capacityViolations.length === 0;
+
   return {
     sessions: merged.sort((a, b) => a.date.localeCompare(b.date)),
     changes,
     explanation: changes.length
       ? "Tamreen rearranged this week so heavy lower-body work and high-intensity running are not stacked, while key sessions stay inside the days you marked available."
       : "This week already respects availability, recovery spacing, and key-session priority.",
+    violations: allViolations,
+    feasible,
   };
 }
 
@@ -1612,6 +1690,16 @@ export function scoreReadiness(input: ReadinessInput): ReadinessResult {
       detail: `Today ${input.hrv} versus baseline ${input.hrvBaseline}. This is context, not a diagnosis.`,
     });
   }
+  let stalenessNote = "";
+  if (input.loggedOn) {
+    const loggedDate = new Date(`${input.loggedOn}T00:00:00Z`);
+    const ageMs = Date.now() - loggedDate.getTime();
+    const ageDays = Math.floor(ageMs / 86_400_000);
+    if (ageDays >= 2) {
+      stalenessNote = ` Check-in is ${ageDays} day${ageDays > 1 ? "s" : ""} old — log a new one for a current score.`;
+      factors.push({ label: "Stale input", detail: `Last check-in was on ${input.loggedOn}. Scores from old inputs are shown as a reference only.` });
+    }
+  }
   return {
     blockedForSafety: false,
     trainRecommendation,
@@ -1624,7 +1712,7 @@ export function scoreReadiness(input: ReadinessInput): ReadinessResult {
     explanation:
       overall == null
         ? "Readiness needs a check-in before Tamreen will score it."
-        : `Readiness is ${overall}. The number is the average of the components that had data. Recommendation: ${trainRecommendation.replaceAll("_", " ")}.`,
+        : `Readiness is ${overall}. The number is the average of the components that had data. Recommendation: ${trainRecommendation.replaceAll("_", " ")}.${stalenessNote}`,
     factors,
   };
 }
@@ -1723,8 +1811,8 @@ export function consistencyScore(completed: number, planned: number): ExplainedS
     dimension: "consistency",
     score,
     sampleSize: planned,
-    explanation: `Consistency is ${score} because ${completed} of ${planned} planned sessions were completed.`,
-    factors: [{ label: "Completion", detail: `${completed} completed / ${planned} planned.` }],
+    explanation: `Consistency is ${score}: ${completed} of ${planned} planned sessions in the last 28 days were logged and linked back to the plan. Standalone activities logged outside the plan are counted separately.`,
+    factors: [{ label: "Completion", detail: `${completed} plan-linked completions / ${planned} planned sessions in window.` }],
   };
 }
 
@@ -1867,14 +1955,76 @@ export function answerCoach(ctx: CoachContext): CoachAnswer {
       safety: false,
     };
   }
+  if (/conflict|clash|friday|saturday|sunday|monday|tuesday|wednesday|thursday|\bweek\b|reschedule|schedule/.test(question)) {
+    const conflictList = ctx.conflicts.length
+      ? ctx.conflicts.map((conflict) => `${conflict.title}: ${conflict.explanation}`).join(" ")
+      : "No open scheduling conflicts were found.";
+    return {
+      title: "Scheduling conflicts",
+      answer: ctx.conflicts.length
+        ? `There are ${ctx.conflicts.length} open conflict${ctx.conflicts.length > 1 ? "s" : ""} in the schedule. ${conflictList} Accepting a proposal is what changes the calendar. Asking does not move anything.`
+        : "No open scheduling conflicts are in the plan right now. If you want to move a specific session, drag it on the plan page or use the date picker, and Tamreen will check for conflicts before saving.",
+      factors: [
+        { label: "Open conflicts", detail: String(ctx.conflicts.length) },
+        { label: "Question", detail: ctx.question },
+      ],
+      proposedChanges: [],
+      requiresAcceptance: false,
+      safety: false,
+    };
+  }
+  if (/miss|missed|skip|skipped|short|only (\d+) min|(\d+) minute|no time|limited time|less time/.test(question)) {
+    const minutes = question.match(/(\d+)\s*min/)?.[1];
+    const timeCap = minutes ? parseInt(minutes, 10) : null;
+    const today = ctx.today;
+    if (timeCap && today) {
+      const feasible = timeCap >= 15;
+      return {
+        title: "Limited time today",
+        answer: feasible
+          ? `You have ${timeCap} minutes. Today's planned session is ${today.title} (${today.durationMin} min, ${today.intensity}). A shortened version can be done: keep the warm-up and the main set, cut the cool-down. If the session is quality work, consider whether ${timeCap} minutes is enough to run the intervals safely. This is a proposal until you accept it.`
+          : `${timeCap} minutes is below the safe minimum for a productive session. A short walk or mobility work would be a better choice than a compressed high-intensity effort.`,
+        factors: [
+          { label: "Available time", detail: `${timeCap} minutes` },
+          { label: "Planned", detail: today ? `${today.title} (${today.durationMin} min)` : "Nothing scheduled" },
+        ],
+        proposedChanges: feasible && today && today.durationMin > timeCap
+          ? [{
+              date: today.date,
+              title: `${today.title} (shortened)`,
+              sport: today.sport,
+              durationMin: timeCap,
+              intensity: today.intensity,
+              why: `Duration reduced to match your available ${timeCap} minutes. Original plan was ${today.durationMin} minutes.`,
+            }]
+          : [],
+        requiresAcceptance: true,
+        safety: false,
+      };
+    }
+    return {
+      title: "Missed or shortened session",
+      answer: ctx.today
+        ? `Today is ${ctx.today.title}. If you missed it or need to shorten it, mark it as skipped or missed on the plan page. Tamreen will propose an adaptation — it stays a proposal until you accept it.`
+        : "Mark the missed session on the plan page and Tamreen will propose an adaptation. The proposal shows the change before anything moves.",
+      factors: [
+        { label: "Session", detail: ctx.today ? ctx.today.title : "Nothing scheduled today" },
+        { label: "Action", detail: "Mark missed or skipped on the plan page to trigger an adaptation proposal." },
+      ],
+      proposedChanges: [],
+      requiresAcceptance: false,
+      safety: false,
+    };
+  }
   return {
     title: `Coaching ${ctx.name || "athlete"}`,
     answer: ctx.today
-      ? `Today is ${ctx.today.title}. ${ctx.today.why} Your primary goal is ${ctx.primaryGoal.replaceAll("_", " ")}.`
-      : `Nothing is scheduled today. The primary goal is ${ctx.primaryGoal.replaceAll("_", " ")}. Ask about today's session, a conflict, or a change and Tamreen will show the factors before anything moves.`,
+      ? `Today is ${ctx.today.title} (${ctx.today.durationMin} min, ${ctx.today.intensity}). ${ctx.today.why} Your primary goal is ${ctx.primaryGoal.replaceAll("_", " ")}. Ask about a conflict, a missed session, available time, or a specific day and Tamreen will address it directly.`
+      : `Nothing is scheduled today. The primary goal is ${ctx.primaryGoal.replaceAll("_", " ")}. Ask about a conflict, a missed session, available time, or a specific day and Tamreen will address it directly. Note: this is a rule-based response — no AI model is queried when the question does not match a known intent.`,
     factors: [
       { label: "Goal", detail: ctx.primaryGoal.replaceAll("_", " ") },
       { label: "Conflicts open", detail: String(ctx.conflicts.length) },
+      { label: "Response type", detail: "Rule-based fallback. Intent was not matched to a specific handler." },
     ],
     proposedChanges: [],
     requiresAcceptance: false,
