@@ -3,9 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { encryptStravaSecret, decryptStravaSecret } from "./strava-crypto";
 import {
   refreshStravaToken,
+  fetchStravaActivities,
+  fetchStravaStats,
   StravaHttpError,
   type StravaTokenSet,
   type StravaAthlete,
+  type StravaActivity,
+  type StravaActivityStats,
   type StravaCreateActivity,
   createStravaActivity,
 } from "./strava";
@@ -114,6 +118,40 @@ export async function disconnectStravaAccount(
       .eq("provider", "strava"),
   ]);
   return { ok: true, code: "disconnected" };
+}
+
+export async function loadStravaFeed(
+  supabase: SupabaseClient,
+  userId: string,
+  config: StravaServerConfig,
+): Promise<{ activities: StravaActivity[]; stats: StravaActivityStats | null; athleteId: string | null }> {
+  const credentials = await readCredentials(supabase, userId);
+  if (!credentials) return { activities: [], stats: null, athleteId: null };
+
+  let accessToken: string;
+  try {
+    accessToken = await freshAccessToken(supabase, userId, credentials, config);
+  } catch {
+    return { activities: [], stats: null, athleteId: null };
+  }
+
+  const { data: cred } = await supabase
+    .from("strava_credentials")
+    .select("athlete_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const athleteId = cred?.athlete_id ?? null;
+
+  try {
+    const [activities, stats] = await Promise.all([
+      fetchStravaActivities(accessToken, 15),
+      athleteId ? fetchStravaStats(Number(athleteId), accessToken) : Promise.resolve(null),
+    ]);
+    return { activities, stats, athleteId };
+  } catch {
+    return { activities: [], stats: null, athleteId };
+  }
 }
 
 export async function uploadWorkoutToStrava(
