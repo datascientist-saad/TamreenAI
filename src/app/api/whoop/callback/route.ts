@@ -17,7 +17,7 @@ function finish(request: NextRequest, code: string) {
 }
 
 function readOauthCookie(value: string | undefined): { state: string; userId: string } | null {
-  if (!value || value.length < 46 || value[8] !== ".") return null;
+  if (!value || value.length < 45 || value[8] !== ".") return null;
   const state = value.slice(0, 8);
   const userId = value.slice(9);
   if (!/^[0-9a-f-]{36}$/i.test(userId)) return null;
