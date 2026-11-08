@@ -999,7 +999,7 @@ export async function setWorkoutStatus(id: string, status: "skipped" | "complete
   return { ok: true, status };
 }
 
-export async function optimizeOpenConflicts() {
+export async function proposeOptimization() {
   const { supabase, user } = await limit("optimize", 12, 3600);
   const ctx = await contextFor(user.id, supabase);
   const today = ctx.startDate;
@@ -1015,59 +1015,110 @@ export async function optimizeOpenConflicts() {
     .order("scheduled_date");
   const source = rows ?? [];
   if (!source.length) {
-    return { ok: true as const, explanation: "There are no upcoming sessions to move.", changes: [], remaining: 0 };
+    return { ok: true as const, proposal: null, explanation: "There are no upcoming sessions to move.", changes: [], remaining: 0, violations: [], feasible: true };
   }
   const sessions = source.map(toPlanned);
   const before = findConflicts(sessions);
-  const optimized = optimizeWeek(ctx, sessions);
-  const applied = matchScheduleChanges(source, optimized.changes);
-  for (const move of applied) {
-    const { error } = await supabase
-      .from("workouts")
-      .update({ scheduled_date: move.toDate, moved_from: move.fromDate, status: "moved" })
-      .eq("id", move.id)
-      .eq("user_id", user.id);
-    if (error) throw new Error(error.message);
-  }
+  const optimized = optimizeWeek(ctx, sessions, 13);
+  const proposed = matchScheduleChanges(source, optimized.changes);
   const projected = source.map((row) => {
-    const move = applied.find((item) => item.id === row.id);
+    const move = proposed.find((item) => item.id === row.id);
     return move ? { ...row, scheduled_date: move.toDate } : row;
   });
   const after = findConflicts(projected.map(toPlanned));
   const explanation = optimizeExplanation({
     beforeCount: before.length,
     afterCount: after.length,
-    changeCount: applied.length,
+    changeCount: proposed.length,
     engineExplanation: optimized.explanation,
   });
-  if (after.length === 0) {
-    await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
-  } else if (applied.length) {
-    await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
-    await supabase.from("training_conflicts").insert(after.map((conflict) => ({
-      user_id: user.id,
-      workout_a_id: projected[conflict.sessionA]?.id ?? null,
-      workout_b_id: projected[conflict.sessionB]?.id ?? null,
-      severity: conflict.severity,
-      title: conflict.title,
-      explanation: conflict.explanation,
-      recommendation: { factors: conflict.factors },
-      status: "open",
-    })));
+
+  if (!proposed.length && !optimized.violations.length) {
+    return { ok: true as const, proposal: null, explanation, changes: [], remaining: after.length, violations: [], feasible: optimized.feasible };
   }
-  if (applied.length || before.length) {
-    await supabase.from("ai_recommendations").insert({
-      user_id: user.id,
-      kind: "schedule_optimization",
-      title: "Schedule optimized",
-      body: explanation,
-      factors: applied.map((change) => ({ label: change.title, detail: `${change.fromDate} → ${change.toDate}. ${change.reason}` })),
-      proposed_changes: applied,
-      status: "applied",
-    });
-  }
+
+  const { data: recommendation, error: recError } = await supabase.from("ai_recommendations").insert({
+    user_id: user.id,
+    kind: "schedule_optimization",
+    title: proposed.length ? "Schedule proposal ready" : "No moves needed",
+    body: explanation,
+    factors: proposed.map((change) => ({ label: change.title, detail: `${change.fromDate} → ${change.toDate}. ${change.reason}` })),
+    proposed_changes: proposed,
+    status: "pending",
+  }).select("id").single();
+  if (recError || !recommendation) throw new Error(recError?.message ?? "Proposal was not saved.");
+
   refreshTraining();
-  return { ok: true as const, explanation, changes: applied, remaining: after.length };
+  return { ok: true as const, proposal: recommendation.id, explanation, changes: proposed, remaining: after.length, violations: optimized.violations, feasible: optimized.feasible };
+}
+
+export async function acceptOptimizeProposal(proposalId: string) {
+  const { supabase, user } = await limit("optimize_accept", 20, 3600);
+  const { data: row } = await supabase
+    .from("ai_recommendations")
+    .select("id, proposed_changes, status")
+    .eq("id", proposalId)
+    .eq("user_id", user.id)
+    .single();
+  if (!row || row.status !== "pending") throw new Error("That proposal is no longer pending.");
+
+  const changes = (row.proposed_changes ?? []) as Array<{ id: string; fromDate: string; toDate: string; title: string; reason: string }>;
+  for (const change of changes) {
+    const { error } = await supabase
+      .from("workouts")
+      .update({ scheduled_date: change.toDate, moved_from: change.fromDate, status: "moved" })
+      .eq("id", change.id)
+      .eq("user_id", user.id)
+      .neq("status", "completed");
+    if (error) throw new Error(error.message);
+  }
+
+  await supabase.from("ai_recommendations").update({ status: "applied" }).eq("id", proposalId);
+  await supabase.from("audit_logs").insert({
+    actor_id: user.id,
+    action: "accept_optimize_proposal",
+    entity: "ai_recommendations",
+    entity_id: proposalId,
+    metadata: { change_count: changes.length },
+  });
+
+  const afterIds = changes.map((c) => c.id);
+  if (afterIds.length) {
+    const { data: movedWorkouts } = await supabase
+      .from("workouts")
+      .select("id, scheduled_date, sport, title, intensity, duration_min, expected_load, importance, recovery_hours, why_text")
+      .in("id", afterIds)
+      .eq("user_id", user.id);
+    const afterSessions = (movedWorkouts ?? []).map(toPlanned);
+    const after = findConflicts(afterSessions);
+    if (after.length === 0) {
+      await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
+    } else {
+      await supabase.from("training_conflicts").update({ status: "optimized" }).eq("user_id", user.id).eq("status", "open");
+    }
+  }
+
+  refreshTraining();
+  return { ok: true as const, applied: changes.length };
+}
+
+export async function rejectOptimizeProposal(proposalId: string) {
+  const { supabase, user } = await limit("optimize_reject", 20, 3600);
+  const { data: row } = await supabase
+    .from("ai_recommendations")
+    .select("id, status")
+    .eq("id", proposalId)
+    .eq("user_id", user.id)
+    .single();
+  if (!row || row.status !== "pending") throw new Error("That proposal is no longer pending.");
+  await supabase.from("ai_recommendations").update({ status: "rejected" }).eq("id", proposalId);
+  refreshTraining();
+  return { ok: true as const };
+}
+
+/** Backward-compatible alias: now returns a pending proposal instead of applying immediately. */
+export async function optimizeOpenConflicts() {
+  return proposeOptimization();
 }
 
 export async function updateDisplayName(name: string) {
@@ -1544,9 +1595,10 @@ async function refreshScores(supabase: Awaited<ReturnType<typeof requireUser>>["
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
   const since = new Date(`${today}T00:00:00Z`);
   since.setUTCDate(since.getUTCDate() - 28);
-  const [{ data: planned }, { data: completed }, { data: runs }, { data: recovery }, { data: goal }] = await Promise.all([
+  const [{ data: planned }, { data: completed }, { data: linkedCompletions }, { data: runs }, { data: recovery }, { data: goal }] = await Promise.all([
     supabase.from("workouts").select("id", { count: "exact" }).eq("user_id", userId).gte("scheduled_date", since.toISOString().slice(0, 10)).lte("scheduled_date", today).is("deleted_at", null),
     supabase.from("completed_workouts").select("id, sport, load, started_at").eq("user_id", userId).gte("started_at", since.toISOString()),
+    supabase.from("completed_workouts").select("workout_id").eq("user_id", userId).gte("started_at", since.toISOString()).not("workout_id", "is", null),
     supabase.from("running_sessions").select("distance_m, duration_seconds, session_type").eq("user_id", userId).order("id", { ascending: false }).limit(12),
     supabase.from("recovery_logs").select("*").eq("user_id", userId).order("logged_on", { ascending: false }).limit(7),
     supabase.from("athlete_goals").select("is_primary, goals(slug)").eq("user_id", userId).eq("is_primary", true).maybeSingle(),
@@ -1573,6 +1625,7 @@ async function refreshScores(supabase: Awaited<ReturnType<typeof requireUser>>["
       chronicLoad: Math.max(chronic, 1),
       lowerBodyLoad48h: lower48,
       hardEnduranceLoad48h: hard48,
+      loggedOn: typeof latestRecovery.logged_on === "string" ? latestRecovery.logged_on : null,
     });
     await supabase.from("readiness_scores").upsert({
       user_id: userId,
@@ -1603,7 +1656,7 @@ async function refreshScores(supabase: Awaited<ReturnType<typeof requireUser>>["
     runningScore(pace, pace ? target : null),
     cyclingScore(athlete?.ftp_watts ?? null, athlete?.weight_kg ?? null),
     swimmingScore(athlete?.swim_100m_seconds ?? null),
-    consistencyScore((completed ?? []).length, planned?.length ?? 0),
+    consistencyScore(new Set((linkedCompletions ?? []).map((row) => row.workout_id)).size, planned?.length ?? 0),
   ].filter((score): score is NonNullable<typeof score> => Boolean(score));
   const combined = overallScore(parts, primary);
   const rows = [...parts, combined].filter((score): score is NonNullable<typeof score> => Boolean(score)).map((score) => ({

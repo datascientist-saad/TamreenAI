@@ -175,7 +175,7 @@ export async function loadOnboardingDraft(): Promise<OnboardingDraft> {
   const draft = blankOnboardingDraft();
   const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: events }] = await Promise.all([
     supabase.from("profiles").select("full_name, date_of_birth, sex, onboarding_completed").eq("id", user.id).maybeSingle(),
-    supabase.from("athlete_profiles").select("height_cm, weight_kg, body_fat_pct, experience_level, minutes_per_day, preferred_days, gym_access, pool_access, bike_access, reported_5k_seconds, reported_10k_seconds, reported_half_seconds, reported_marathon_seconds, weekly_run_km, ftp_watts, weekly_bike_km, swim_100m_seconds, swim_400m_seconds, weekly_swim_m, squat_kg, bench_kg, deadlift_kg").eq("user_id", user.id).maybeSingle(),
+    supabase.from("athlete_profiles").select("height_cm, weight_kg, body_fat_pct, experience_level, minutes_per_day, preferred_days, multiple_sessions_per_day, gym_access, pool_access, bike_access, reported_5k_seconds, reported_10k_seconds, reported_half_seconds, reported_marathon_seconds, weekly_run_km, ftp_watts, weekly_bike_km, swim_100m_seconds, swim_400m_seconds, weekly_swim_m, squat_kg, bench_kg, deadlift_kg").eq("user_id", user.id).maybeSingle(),
     supabase.from("athlete_sports").select("is_primary, sports(slug)").eq("user_id", user.id),
     supabase.from("athlete_goals").select("is_primary, custom_label, goals(slug)").eq("user_id", user.id),
     supabase.from("injuries").select("status, body_area, description, exercises_to_avoid, severity, red_flag").eq("user_id", user.id).eq("status", "current"),
@@ -226,6 +226,7 @@ export async function loadOnboardingDraft(): Promise<OnboardingDraft> {
     customGoal: goalRows.find((goal) => goal.slug === "custom")?.custom ?? goalRows.find((goal) => goal.custom)?.custom ?? "",
     preferredDays: preferred.length ? [...new Set(preferred)].sort((a, b) => a - b) : [],
     minutesPerDay: numberText(athlete?.minutes_per_day) || draft.minutesPerDay,
+    multipleSessionsPerDay: typeof athlete?.multiple_sessions_per_day === "boolean" ? athlete.multiple_sessions_per_day : null,
     gymAccess: athlete?.gym_access ?? draft.gymAccess,
     poolAccess: athlete?.pool_access ?? draft.poolAccess,
     bikeAccess: athlete?.bike_access ?? draft.bikeAccess,

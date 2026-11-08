@@ -13,6 +13,7 @@ export type OnboardingDraft = {
   customGoal: string;
   preferredDays: number[];
   minutesPerDay: string;
+  multipleSessionsPerDay: boolean | null;
   gymAccess: boolean;
   poolAccess: boolean;
   bikeAccess: boolean;
@@ -61,6 +62,7 @@ export function blankOnboardingDraft(): OnboardingDraft {
     customGoal: "",
     preferredDays: [1, 2, 3, 4, 5, 6],
     minutesPerDay: "60",
+    multipleSessionsPerDay: null,
     gymAccess: true,
     poolAccess: false,
     bikeAccess: false,

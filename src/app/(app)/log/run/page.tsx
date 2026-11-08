@@ -1,11 +1,11 @@
 import { PageFrame } from "@/components/page";
 import { RunForm } from "@/features/endurance/log-forms";
 
-export default async function LogRunPage({ searchParams }: { searchParams: Promise<{ workout?: string; title?: string }> }) {
+export default async function LogRunPage({ searchParams }: { searchParams: Promise<{ workout?: string; title?: string; intensity?: string }> }) {
   const query = await searchParams;
   return (
     <PageFrame eyebrow="Running" title="Log a run" lede="Pace, splits, and heart rate are stored as you enter them. The analysis page only scores fields that exist.">
-      <RunForm workoutId={query.workout ?? null} title={query.title ?? "Run"} />
+      <RunForm workoutId={query.workout ?? null} title={query.title ?? "Run"} plannedType={query.intensity} />
     </PageFrame>
   );
 }

@@ -42,7 +42,7 @@ export function OnboardingWizard({
   const [primary, setPrimary] = useState(draft.primaryGoal && (draft.goals.includes(draft.primaryGoal) || !draft.goals.length) ? draft.primaryGoal : draft.goals[0] ?? "");
   const [preferred, setPreferred] = useState<number[]>(draft.preferredDays);
   const [training, setTraining] = useState(draft.training);
-  const [doubles, setDoubles] = useState<boolean | null>(null);
+  const [doubles, setDoubles] = useState<boolean | null>(draft.multipleSessionsPerDay ?? null);
   const [gym, setGym] = useState(draft.gymAccess);
   const [pool, setPool] = useState(draft.poolAccess);
   const [bike, setBike] = useState(draft.bikeAccess);
