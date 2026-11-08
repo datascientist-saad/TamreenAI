@@ -8,7 +8,7 @@ const DEFAULT_GROQ_MODEL = "llama-4-scout-17b-16e-instruct";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 
 function resolveProvider(): { key: string; baseUrl: string; defaultModel: string } | null {
-  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const groqKey = (process.env.GROK_API ?? process.env.GROQ_API_KEY)?.trim();
   if (groqKey) return { key: groqKey, baseUrl: GROQ_BASE_URL, defaultModel: DEFAULT_GROQ_MODEL };
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
   if (openaiKey) return { key: openaiKey, baseUrl: OPENAI_BASE_URL, defaultModel: DEFAULT_OPENAI_MODEL };
@@ -23,7 +23,11 @@ export function openAIModel(): string {
 }
 
 export function openAIConfigured(): boolean {
-  return Boolean(process.env.GROQ_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
+  return Boolean(
+    process.env.GROK_API?.trim() ||
+    process.env.GROQ_API_KEY?.trim() ||
+    process.env.OPENAI_API_KEY?.trim(),
+  );
 }
 
 export async function requestChatDraft(
