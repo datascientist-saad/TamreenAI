@@ -23,7 +23,10 @@ function relationSlug(value: unknown): string {
 }
 
 const explore = [
+  ["/health", "Health"],
+  ["/nutrition", "Nutrition"],
   ["/recovery", "Recovery"],
+  ["/weekly", "Weekly review"],
   ["/ai", "AI coach"],
   ["/analytics", "Analytics"],
   ["/records", "Records"],

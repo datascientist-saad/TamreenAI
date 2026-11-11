@@ -46,6 +46,7 @@ export const sportGroups: Array<{ label: string; slugs: SportSlug[] }> = [
 ];
 
 export const goalOptions = [
+  ["endurance", "Endurance"],
   ["build_muscle", "Build muscle"],
   ["lose_fat", "Lose fat"],
   ["recomposition", "Recomposition"],
@@ -56,6 +57,7 @@ export const goalOptions = [
   ["marathon", "Marathon"],
   ["sprint_triathlon", "Sprint triathlon"],
   ["olympic_triathlon", "Olympic triathlon"],
+  ["t100", "T100"],
   ["ironman_70_3", "Ironman 70.3"],
   ["ironman", "Ironman"],
   ["improve_cycling", "Improve cycling"],
@@ -73,9 +75,10 @@ export const goalOptions = [
 ] as const;
 
 export const goalGroups = [
+  ["Endurance", ["endurance", "improve_cycling", "improve_swimming", "general_hybrid"]],
   ["Strength", ["build_muscle", "lose_fat", "recomposition", "increase_strength"]],
   ["Running", ["improve_5k", "improve_10k", "half_marathon", "marathon"]],
-  ["Triathlon", ["sprint_triathlon", "olympic_triathlon", "ironman_70_3", "ironman"]],
+  ["Triathlon", ["sprint_triathlon", "olympic_triathlon", "t100", "ironman_70_3", "ironman"]],
   ["Court and field", ["improve_football", "improve_padel", "improve_basketball", "improve_tennis", "improve_volleyball", "improve_pickleball", "improve_badminton", "improve_cricket"]],
-  ["Other", ["improve_cycling", "improve_swimming", "general_hybrid", "custom"]],
+  ["Other", ["custom"]],
 ] as const;

@@ -173,13 +173,14 @@ function joinedSlug(value: unknown): string {
 export async function loadOnboardingDraft(): Promise<OnboardingDraft> {
   const { supabase, user } = await requireUser();
   const draft = blankOnboardingDraft();
-  const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: events }] = await Promise.all([
+  const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: events }, { data: prefs }] = await Promise.all([
     supabase.from("profiles").select("full_name, date_of_birth, sex, onboarding_completed").eq("id", user.id).maybeSingle(),
     supabase.from("athlete_profiles").select("height_cm, weight_kg, body_fat_pct, experience_level, minutes_per_day, preferred_days, multiple_sessions_per_day, gym_access, pool_access, bike_access, reported_5k_seconds, reported_10k_seconds, reported_half_seconds, reported_marathon_seconds, weekly_run_km, ftp_watts, weekly_bike_km, swim_100m_seconds, swim_400m_seconds, weekly_swim_m, squat_kg, bench_kg, deadlift_kg").eq("user_id", user.id).maybeSingle(),
     supabase.from("athlete_sports").select("is_primary, sports(slug)").eq("user_id", user.id),
     supabase.from("athlete_goals").select("is_primary, custom_label, goals(slug)").eq("user_id", user.id),
     supabase.from("injuries").select("status, body_area, description, exercises_to_avoid, severity, red_flag").eq("user_id", user.id).eq("status", "current"),
     supabase.from("events").select("id, name, event_type, starts_on, distance_m, goal_time_seconds, description").eq("owner_user_id", user.id).is("deleted_at", null).order("starts_on"),
+    supabase.from("athlete_preferences").select("dietary_pattern, allergies, nutrition_mode, scheduling_mode, sport_priority_mode, assessment_path, health_data_consent").eq("user_id", user.id).maybeSingle(),
   ]);
   const knownSports = new Set<string>(sportSlugs);
   const sportRows = (sports ?? []).flatMap((row) => {
@@ -256,6 +257,27 @@ export async function loadOnboardingDraft(): Promise<OnboardingDraft> {
       squatKg: numberValue(athlete?.squat_kg),
       benchKg: numberValue(athlete?.bench_kg),
       deadliftKg: numberValue(athlete?.deadlift_kg),
+    },
+    preferences: {
+      dietaryPattern:
+        prefs?.dietary_pattern === "halal"
+        || prefs?.dietary_pattern === "vegetarian"
+        || prefs?.dietary_pattern === "vegan"
+        || prefs?.dietary_pattern === "pescatarian"
+        || prefs?.dietary_pattern === "kosher"
+        || prefs?.dietary_pattern === "custom"
+        || prefs?.dietary_pattern === "none"
+          ? prefs.dietary_pattern
+          : draft.preferences.dietaryPattern,
+      allergies: Array.isArray(prefs?.allergies) ? prefs.allergies.join(", ") : draft.preferences.allergies,
+      nutritionMode: prefs?.nutrition_mode === "structured" ? "structured" : "flexible",
+      schedulingMode: prefs?.scheduling_mode === "fixed" ? "fixed" : "adaptive",
+      sportPriorityMode: prefs?.sport_priority_mode === "athlete_controlled" ? "athlete_controlled" : "ai_recommended",
+      assessmentPath:
+        prefs?.assessment_path === "self_report" || prefs?.assessment_path === "benchmark" || prefs?.assessment_path === "hybrid"
+          ? prefs.assessment_path
+          : draft.preferences.assessmentPath,
+      healthDataConsent: Boolean(prefs?.health_data_consent),
     },
   };
 }
