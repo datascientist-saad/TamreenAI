@@ -42,9 +42,21 @@ export function PersonalEventForm() {
     }}>
       <h2 className="font-bold">Add an event</h2>
       <label>Name<input name="name" required /></label>
-      <label>Type<input name="eventType" placeholder="Ironman 70.3" required /></label>
+      <label>Type
+        <select name="eventType" required defaultValue="race">
+          <option value="race">Custom / other</option>
+          <option value="running_5k">5K</option>
+          <option value="sprint_triathlon">Sprint triathlon</option>
+          <option value="olympic_triathlon">Olympic triathlon</option>
+          <option value="t100">T100 (2 km / 80 km / 18 km)</option>
+          <option value="ironman_70_3">Ironman 70.3</option>
+          <option value="ironman">Full-distance triathlon</option>
+          <option value="cycling">Cycling event</option>
+          <option value="swimming">Swimming event</option>
+        </select>
+      </label>
       <label>Date<input name="date" type="date" required /></label>
-      <label>Distance (m)<input name="distanceM" inputMode="decimal" /></label>
+      <label>Distance (m) — optional; templates fill standard distances later<input name="distanceM" inputMode="decimal" /></label>
       <TimeFields name="goal" legend="Goal time" />
       <label>Location<input name="location" /></label>
       {error ? <p className="text-sm text-live">{error}</p> : null}

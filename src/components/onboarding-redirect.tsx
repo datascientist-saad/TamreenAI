@@ -7,7 +7,8 @@ export function OnboardingRedirect() {
   const pathname = usePathname();
   const router = useRouter();
   useEffect(() => {
-    if (pathname !== "/onboarding") router.replace("/onboarding");
+    if (pathname === "/onboarding" || pathname.startsWith("/onboarding/")) return;
+    router.replace("/onboarding");
   }, [pathname, router]);
   return null;
 }

@@ -31,9 +31,12 @@ const sideGroups = [
     label: "Body & progress",
     items: [
       ["/recovery", "Recovery"],
+      ["/health", "Health"],
+      ["/nutrition", "Nutrition"],
       ["/progress", "Performance"],
       ["/records", "Records"],
       ["/analytics", "Analytics"],
+      ["/weekly", "Weekly review"],
     ],
   },
   {

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/services/training/engine.test.ts src/services/training/schedule.test.ts src/services/ai/plan.test.ts src/services/live/geometry.test.ts src/services/live/catalog.test.ts src/lib/time.test.ts src/lib/portrait.test.ts src/lib/fitness.test.ts src/services/wearables/whoop.test.ts"
+    "test": "tsx --test src/services/training/engine.test.ts src/services/training/schedule.test.ts src/services/ai/plan.test.ts src/services/live/geometry.test.ts src/services/live/catalog.test.ts src/lib/time.test.ts src/lib/portrait.test.ts src/lib/fitness.test.ts src/services/wearables/whoop.test.ts src/services/nutrition/calories.test.ts src/services/fitness/assessment.test.ts src/services/training/priorities.test.ts src/services/events/templates.test.ts src/services/weekly/review.test.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.21",

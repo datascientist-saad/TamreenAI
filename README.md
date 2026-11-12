@@ -46,9 +46,18 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## MVP modules (unified athlete)
+
+- Shared athlete profile/onboarding with plan **preview confirmation**
+- Manual **Health** (`/health`) — no Garmin/Apple Health sync in this MVP
+- **Nutrition** (`/nutrition`) — deterministic calorie/macros + food logging
+- **Weekly review** (`/weekly`) — accept/reject proposed adjustments
+- Event templates including **T100** (2 km / 80 km / 18 km)
+- See `docs/TAMREEN_MVP_AUDIT.md` and `docs/TAMREEN_MVP_IMPLEMENTATION_REPORT.md`
+
 ## What is real
 
-- Accounts, onboarding, plans, logs, recovery, conflicts, and scores are stored in Postgres.
+- Accounts, onboarding, plans, logs, recovery, health, nutrition, conflicts, and scores are stored in Postgres.
 - Row Level Security uses `user_roles` and relationship tables. JWT user metadata is not an authorization source.
 - Onboarding stores sports, goals, days, equipment, benchmarks, injuries, and the event on the athlete profile. Rebuilding a plan stores that same selection snapshot on the training plan.
 - When `OPENAI_API_KEY` is set, the server asks the configured model for a weekly pattern that uses every saved day and sport. That pattern is what the plan page shows. Tamreen still places sessions only on the selected days, drops sports the athlete cannot do, and removes avoided exercises. A reply that is only a single tempo run, or that misses a saved day or sport, is asked for once more. A red-flag injury stays on the recovery rules and is not sent to the model. If the key is missing or the reply still cannot be used, the deterministic training rules write the plan instead.

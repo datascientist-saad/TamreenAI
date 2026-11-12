@@ -27,9 +27,12 @@ const journeyGroups = [
     label: "Body & progress",
     items: [
       ["/recovery", "Recovery check-in", "Readiness, VO₂ max, WHOOP"],
+      ["/health", "Health", "Measurements and fitness metrics"],
+      ["/nutrition", "Nutrition", "Fueling and hydration"],
       ["/progress", "Performance", "Tamreen score by sport"],
       ["/records", "Records", "PRs, baselines, Strava"],
       ["/analytics", "Analytics", "Trends over time"],
+      ["/weekly", "Weekly review", "What the last week taught"],
     ],
   },
   {
