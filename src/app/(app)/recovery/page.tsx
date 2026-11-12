@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { PageFrame } from "@/components/page";
 import { SafetyBanner } from "@/components/states";
 import { TrendChart } from "@/features/analytics/trend";
 import { FitnessMetricsForm } from "@/features/recovery/fitness-metrics";
 import { RecoveryForm } from "@/features/recovery/check-in";
+import { RecoverySectionTabs } from "@/features/recovery/section-tabs";
 import { WhoopMetrics } from "@/features/whoop/metrics";
 import { estimateVo2From5kSeconds, readinessTone, recommendationLabel } from "@/lib/fitness";
 import { cn } from "@/lib/utils";
@@ -82,12 +84,6 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
   const history = [...(logs ?? [])].reverse();
   const maxSleep = Math.max(8, ...history.map((log) => Number(log.sleep_hours ?? 0)));
 
-  const tabs = [
-    { id: "checkin", label: "Check-in", href: "/recovery" },
-    { id: "metrics", label: "Metrics", href: "/recovery?tab=metrics" },
-    { id: "history", label: "History", href: "/recovery?tab=history" },
-  ] as const;
-
   return (
     <PageFrame
       eyebrow="Body"
@@ -107,7 +103,7 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
           <ReadinessRing score={latest?.overall == null ? null : Number(latest.overall)} />
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/70">Today&apos;s readiness</p>
-            <p className="mt-1 text-2xl font-extrabold capitalize">{recommendationLabel(latest?.train_recommendation)}</p>
+            <p className="mt-1 text-2xl font-extrabold">{recommendationLabel(latest?.train_recommendation)}</p>
             <p className="mt-2 text-sm text-white/85">{latest?.explanation ?? "Save a check-in to score readiness. Tamreen will not invent one."}</p>
           </div>
         </div>
@@ -119,20 +115,9 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
         </dl>
       </section>
 
-      <nav className="grid grid-cols-3 gap-2" aria-label="Recovery sections">
-        {tabs.map((item) => (
-          <Link
-            key={item.id}
-            href={item.href}
-            className={cn(
-              "rounded-2xl px-3 py-3 text-center text-sm font-bold",
-              tab === item.id ? "bg-maroon text-white" : "bg-card text-muted ring-1 ring-line",
-            )}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+      <Suspense fallback={<div className="grid h-12 grid-cols-3 gap-2 rounded-2xl bg-line/40" />}>
+        <RecoverySectionTabs />
+      </Suspense>
 
       {tab === "checkin" ? (
         <section className="grid gap-3">
@@ -193,34 +178,50 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
         <section className="app-card grid gap-4 p-4">
           <div>
             <h2 className="text-xl font-extrabold">Recent check-ins</h2>
-            <p className="text-sm text-muted">Sleep bars and feeling scores for the last two weeks.</p>
+            <p className="text-sm text-muted">Last week of sleep and feeling scores.</p>
           </div>
           {history.length === 0 ? (
             <p className="text-sm text-muted">No check-ins yet. Start with today&apos;s entry.</p>
           ) : (
-            <ul className="grid gap-3">
-              {history.map((log) => {
-                const sleep = Number(log.sleep_hours ?? 0);
-                const width = Math.max(8, Math.round((sleep / maxSleep) * 100));
-                return (
-                  <li key={log.logged_on} className="rounded-2xl bg-paper px-3 py-3">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="font-bold">{log.logged_on}</p>
-                      <p className="metric text-sm font-bold">{sleep || "—"}h sleep</p>
+            <>
+              <div className="grid grid-cols-7 items-end gap-1.5 rounded-2xl bg-paper px-3 py-3">
+                {history.slice(-7).map((log) => {
+                  const sleep = Number(log.sleep_hours ?? 0);
+                  const height = Math.max(12, Math.round((sleep / maxSleep) * 72));
+                  return (
+                    <div key={`spark-${log.logged_on}`} className="grid justify-items-center gap-1">
+                      <div className="flex h-[72px] w-full items-end justify-center">
+                        <div className="w-full max-w-6 rounded-t-md bg-maroon" style={{ height }} title={`${sleep}h`} />
+                      </div>
+                      <p className="text-[10px] font-semibold text-muted">{log.logged_on.slice(5)}</p>
                     </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-line">
-                      <div className="h-full rounded-full bg-maroon" style={{ width: `${width}%` }} />
-                    </div>
-                    <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-                      <HistoryChip label="Sore" value={log.soreness} />
-                      <HistoryChip label="Fatigue" value={log.fatigue} />
-                      <HistoryChip label="Drive" value={log.motivation} />
-                      <HistoryChip label="Stress" value={log.stress} />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                  );
+                })}
+              </div>
+              <ul className="grid gap-2">
+                {history.slice(-7).reverse().map((log) => {
+                  const sleep = Number(log.sleep_hours ?? 0);
+                  const width = Math.max(8, Math.round((sleep / maxSleep) * 100));
+                  return (
+                    <li key={log.logged_on} className="rounded-2xl bg-paper px-3 py-3">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="font-bold">{log.logged_on}</p>
+                        <p className="metric text-sm font-bold">{sleep || "—"}h sleep</p>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-line">
+                        <div className="h-full rounded-full bg-maroon" style={{ width: `${width}%` }} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+                        <HistoryChip label="Sore" value={log.soreness} />
+                        <HistoryChip label="Fatigue" value={log.fatigue} />
+                        <HistoryChip label="Drive" value={log.motivation} />
+                        <HistoryChip label="Stress" value={log.stress} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </section>
       ) : null}

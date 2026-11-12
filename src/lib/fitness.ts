@@ -16,7 +16,14 @@ export function readinessTone(score: number | null | undefined): "good" | "ok" |
 
 export function recommendationLabel(value: string | null | undefined): string {
   if (!value) return "Log a check-in";
-  return value.replaceAll("_", " ");
+  const labels: Record<string, string> = {
+    push_ok: "Push ok",
+    normal: "Train as planned",
+    easy_only: "Easy only",
+    rest: "Rest today",
+    modify: "Modify the session",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
 }
 
 export type HealthMetricSlug =
