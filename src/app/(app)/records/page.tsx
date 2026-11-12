@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageFrame } from "@/components/page";
 import { EmptyState } from "@/components/states";
 import { formatClock, todayInTimeZone } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface RecordItem {
   kind: "baseline" | "pr" | "volume";
   achievedOn?: string | null;
   dataOrigin?: string;
+  sport: string;
 }
 
 function formatValue(value: number, unit: string): string {
@@ -60,6 +62,21 @@ function stravaTypeLabel(type: string): string {
   return map[type] ?? type;
 }
 
+function relativeWidth(items: RecordItem[], item: RecordItem): number {
+  const peers = items.filter((row) => row.unit === item.unit && row.raw > 0);
+  if (!peers.length) return 40;
+  const lowerIsBetter = item.unit.includes("second");
+  if (lowerIsBetter) {
+    const best = Math.min(...peers.map((row) => row.raw));
+    const worst = Math.max(...peers.map((row) => row.raw));
+    if (worst === best) return 92;
+    return Math.max(18, Math.round(100 - ((item.raw - best) / (worst - best)) * 70));
+  }
+  const best = Math.max(...peers.map((row) => row.raw));
+  if (!best) return 40;
+  return Math.max(18, Math.round((item.raw / best) * 100));
+}
+
 export default async function RecordsPage() {
   const { supabase, user } = await requireUser();
   const [
@@ -87,7 +104,6 @@ export default async function RecordsPage() {
   const allRecords = records ?? [];
   const fresh = allRecords.filter((r) => r.achieved_on >= weekAgo);
 
-  // Fetch live Strava data if connected
   const stravaConfig = stravaServerConfig();
   let stravaActivities: StravaActivity[] = [];
   let stravaStats: StravaActivityStats | null = null;
@@ -101,13 +117,12 @@ export default async function RecordsPage() {
     }
   }
 
-  // Build baseline items from onboarding
   const baselineByKey = new Map<string, RecordItem>();
 
   function addBaseline(key: string, sport: string, label: string, seconds: number | null, unit: string, kind: "baseline" | "volume") {
     if (!seconds) return;
     baselineByKey.set(`${sport}::${key}`, {
-      key, label,
+      key, label, sport,
       value: formatValue(seconds, unit),
       raw: seconds,
       unit,
@@ -129,7 +144,6 @@ export default async function RecordsPage() {
   addBaseline("bench", "strength", "Bench Press", athlete?.bench_kg ? Number(athlete.bench_kg) : null, "kg", "baseline");
   addBaseline("deadlift", "strength", "Deadlift", athlete?.deadlift_kg ? Number(athlete.deadlift_kg) : null, "kg", "baseline");
 
-  // Group actual records by sport
   const prBySport = new Map<string, RecordItem[]>();
   for (const rec of allRecords) {
     const list = prBySport.get(rec.sport) ?? [];
@@ -142,6 +156,7 @@ export default async function RecordsPage() {
       kind: "pr",
       achievedOn: rec.achieved_on,
       dataOrigin: rec.data_origin,
+      sport: rec.sport,
     });
     prBySport.set(rec.sport, list);
   }
@@ -161,23 +176,27 @@ export default async function RecordsPage() {
 
   const totalPRs = allRecords.filter((r) => r.data_origin !== "demo").length;
   const totalBaselines = baselineByKey.size;
+  const highlight = [
+    ...Array.from(prBySport.values()).flat().filter((item) => item.dataOrigin !== "demo"),
+    ...Array.from(baselineByKey.values()),
+  ].slice(0, 3);
 
   return (
     <PageFrame
       eyebrow="Records"
-      title="Personal records"
-      lede="Baselines from onboarding, earned PRs, and Strava activity history in one place."
+      title="Personal marks"
+      lede="PRs and baselines in one visual board. Strava stays as a compact activity feed."
     >
       {fresh.length > 0 && (
-        <div className="rounded-2xl bg-gold/20 px-4 py-3">
+        <div className="rounded-2xl bg-gradient-to-r from-gold/30 to-maroon/10 px-4 py-3">
           <p className="text-xs font-bold uppercase tracking-widest text-maroon">New this week</p>
-          <p className="mt-1 font-bold">{fresh.map((r) => r.record_type.replaceAll("_", " ")).join(", ")}</p>
+          <p className="mt-1 font-bold">{fresh.map((r) => r.record_type.replaceAll("_", " ")).join(" · ")}</p>
         </div>
       )}
 
       {hasAnything && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <StatPill label="Earned PRs" value={String(totalPRs)} accent="maroon" />
+        <div className="grid grid-cols-3 gap-3">
+          <StatPill label="PRs" value={String(totalPRs)} accent="maroon" />
           <StatPill label="Baselines" value={String(totalBaselines)} accent="gold" />
           <StatPill label="Sports" value={String(sortedSports.length)} accent="muted" />
         </div>
@@ -186,70 +205,74 @@ export default async function RecordsPage() {
       {!hasAnything ? (
         <EmptyState
           title="No records yet."
-          body="Finish a lift, a timed run, an FTP test, or a swim that beats the previous best. Connect Strava on the More page to see your activity history here."
+          body="Finish a lift, a timed run, an FTP test, or a swim that beats the previous best. Connect Strava on More to pull activity history."
         />
       ) : (
-        <div className="grid gap-6">
-          {/* Strava live section */}
-          {stravaActivities.length > 0 && (
-            <section>
-              <div className="mb-3 flex items-center gap-2">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="#fc4c02" aria-hidden="true">
-                  <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
-                </svg>
-                <h2 className="text-sm font-extrabold uppercase tracking-widest" style={{ color: "#fc4c02" }}>
-                  Strava
-                </h2>
+        <div className="grid gap-5">
+          {highlight.length > 0 && (
+            <section className="grid gap-3">
+              <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted">Highlight board</h2>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {highlight.map((item, index) => {
+                  const config = SPORT_CONFIG[item.sport] ?? { label: item.sport, color: "#8a1538", bg: "rgba(138,21,56,0.06)" };
+                  return (
+                    <article
+                      key={`${item.sport}-${item.key}-${item.kind}`}
+                      className="relative overflow-hidden rounded-[1.4rem] border border-line bg-card p-4"
+                      style={{ background: `linear-gradient(160deg, ${config.bg}, transparent 70%)` }}
+                    >
+                      <p className="text-xs font-bold uppercase tracking-widest text-muted">#{index + 1} · {config.label}</p>
+                      <p className="mt-2 font-bold capitalize">{item.label}</p>
+                      <p className="metric mt-3 text-3xl font-extrabold" style={{ color: config.color }}>{item.value}</p>
+                      <span
+                        className="mt-3 inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest"
+                        style={item.kind === "pr" ? { background: config.color, color: "white" } : { background: config.bg, color: config.color }}
+                      >
+                        {item.kind === "pr" ? "PR" : item.kind === "volume" ? "Volume" : "Baseline"}
+                      </span>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {(stravaActivities.length > 0 || stravaStats) && (
+            <section className="app-card grid gap-3 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="#fc4c02" aria-hidden="true">
+                    <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+                  </svg>
+                  <h2 className="text-sm font-extrabold uppercase tracking-widest" style={{ color: "#fc4c02" }}>Strava</h2>
+                </div>
+                <Link className="text-sm font-bold text-maroon" href="/more">Manage</Link>
               </div>
 
-              {/* All-time stats row */}
-              {stravaStats && (
-                <div className="mb-3 grid grid-cols-3 gap-2">
-                  {stravaStats.all_run_totals?.count ? (
-                    <MiniStat label="All-time runs" value={String(stravaStats.all_run_totals.count)} />
-                  ) : null}
-                  {stravaStats.all_ride_totals?.count ? (
-                    <MiniStat label="All-time rides" value={String(stravaStats.all_ride_totals.count)} />
-                  ) : null}
-                  {stravaStats.all_swim_totals?.count ? (
-                    <MiniStat label="All-time swims" value={String(stravaStats.all_swim_totals.count)} />
-                  ) : null}
-                  {stravaStats.all_run_totals?.distance ? (
-                    <MiniStat label="Total run km" value={(stravaStats.all_run_totals.distance / 1000).toFixed(0)} />
-                  ) : null}
-                  {stravaStats.all_ride_totals?.distance ? (
-                    <MiniStat label="Total ride km" value={(stravaStats.all_ride_totals.distance / 1000).toFixed(0)} />
-                  ) : null}
-                  {stravaStats.ytd_run_totals?.distance ? (
-                    <MiniStat label="YTD run km" value={(stravaStats.ytd_run_totals.distance / 1000).toFixed(0)} />
-                  ) : null}
+              {stravaStats ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {stravaStats.all_run_totals?.count ? <MiniStat label="Runs" value={String(stravaStats.all_run_totals.count)} /> : null}
+                  {stravaStats.all_ride_totals?.count ? <MiniStat label="Rides" value={String(stravaStats.all_ride_totals.count)} /> : null}
+                  {stravaStats.ytd_run_totals?.distance ? <MiniStat label="YTD run" value={`${(stravaStats.ytd_run_totals.distance / 1000).toFixed(0)} km`} /> : null}
                 </div>
-              )}
+              ) : null}
 
-              {/* Recent activities */}
               <div className="grid gap-2">
-                {stravaActivities.map((activity) => (
-                  <div key={activity.id} className="app-card flex items-center justify-between gap-3 px-4 py-3">
+                {stravaActivities.slice(0, 4).map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between gap-3 rounded-2xl bg-paper px-3 py-3">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest"
-                          style={{ background: "rgba(252,76,2,0.12)", color: "#fc4c02" }}
-                        >
-                          {stravaTypeLabel(activity.sport_type ?? activity.type)}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate font-bold leading-tight">{activity.name}</p>
+                      <p className="truncate font-bold leading-tight">{activity.name}</p>
                       <p className="text-xs text-muted">
+                        {stravaTypeLabel(activity.sport_type ?? activity.type)}
+                        {" · "}
                         {new Date(activity.start_date_local ?? activity.start_date).toLocaleDateString("en-GB", {
                           day: "numeric",
                           month: "short",
-                          year: "numeric",
                         })}
                         {activity.distance > 0 ? ` · ${fmtDistance(activity.distance)}` : ""}
                       </p>
                     </div>
-                    <p className="metric shrink-0 text-xl font-extrabold" style={{ color: "#fc4c02" }}>
+                    <p className="metric shrink-0 text-lg font-extrabold" style={{ color: "#fc4c02" }}>
                       {fmtDuration(activity.moving_time)}
                     </p>
                   </div>
@@ -258,38 +281,41 @@ export default async function RecordsPage() {
             </section>
           )}
 
-          {/* Tamreen sport sections */}
           {sortedSports.map((sport) => {
             const config = SPORT_CONFIG[sport] ?? { label: sport, color: "#8a1538", bg: "rgba(138,21,56,0.06)" };
             const baselines = Array.from(baselineByKey.entries())
               .filter(([k]) => k.startsWith(`${sport}::`))
               .map(([, v]) => v);
             const prs = prBySport.get(sport) ?? [];
-            if (baselines.length === 0 && prs.length === 0) return null;
+            const items = [...prs, ...baselines];
+            if (!items.length) return null;
             return (
-              <section key={sport}>
-                <div className="mb-3 flex items-center gap-2">
+              <section key={sport} className="app-card grid gap-3 p-4">
+                <div className="flex items-center gap-2">
                   <span className="inline-block h-3 w-3 rounded-full" style={{ background: config.color }} />
                   <h2 className="text-sm font-extrabold uppercase tracking-widest" style={{ color: config.color }}>
                     {config.label}
                   </h2>
+                  <span className="ml-auto text-xs font-semibold text-muted">{items.length} marks</span>
                 </div>
-                <div className="grid gap-2">
-                  {prs.map((item) => (
-                    <RecordCard key={`pr-${item.key}`} item={item} accentColor={config.color} accentBg={config.bg} />
-                  ))}
-                  {baselines.map((item) => (
-                    <RecordCard key={`base-${item.key}`} item={item} accentColor={config.color} accentBg={config.bg} />
+                <div className="grid gap-3">
+                  {items.map((item) => (
+                    <RecordBar
+                      key={`${item.kind}-${item.key}`}
+                      item={item}
+                      accentColor={config.color}
+                      accentBg={config.bg}
+                      width={relativeWidth(items, item)}
+                    />
                   ))}
                 </div>
               </section>
             );
           })}
 
-          {/* Strava not connected nudge */}
           {stravaSnap.connection.status !== "connected" && (
             <div className="rounded-2xl border border-dashed border-line px-4 py-4 text-center">
-              <p className="text-sm font-semibold">Connect Strava on the More page to see your activity history here.</p>
+              <p className="text-sm font-semibold">Connect Strava on More to pull activity history into this board.</p>
             </div>
           )}
         </div>
@@ -322,17 +348,18 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function RecordCard({
+function RecordBar({
   item,
   accentColor,
   accentBg,
+  width,
 }: {
   item: RecordItem;
   accentColor: string;
   accentBg: string;
+  width: number;
 }) {
-  const badgeLabel =
-    item.kind === "pr" ? "PR" : item.kind === "volume" ? "Volume" : "Baseline";
+  const badgeLabel = item.kind === "pr" ? "PR" : item.kind === "volume" ? "Volume" : "Baseline";
   const badgeStyle =
     item.kind === "pr"
       ? { background: accentColor, color: "white" }
@@ -341,33 +368,31 @@ function RecordCard({
         : { background: accentBg, color: accentColor };
 
   return (
-    <div className="app-card flex items-center justify-between gap-3 px-4 py-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span
-            className="inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest"
-            style={badgeStyle}
-          >
-            {badgeLabel}
-          </span>
-          {item.dataOrigin === "demo" && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">demo</span>
-          )}
+    <div className="grid gap-2 rounded-2xl bg-paper px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest" style={badgeStyle}>
+              {badgeLabel}
+            </span>
+            {item.dataOrigin === "demo" ? <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">demo</span> : null}
+          </div>
+          <p className="mt-1 font-bold capitalize leading-tight">{item.label}</p>
+          {item.achievedOn ? (
+            <p className="text-xs text-muted">
+              {new Date(`${item.achievedOn}T00:00:00Z`).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+          ) : null}
         </div>
-        <p className="mt-1 font-bold capitalize leading-tight">{item.label}</p>
-        {item.achievedOn && (
-          <p className="text-xs text-muted">
-            {new Date(`${item.achievedOn}T00:00:00Z`).toLocaleDateString("en-GB", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            })}
-          </p>
-        )}
+        <p className="metric shrink-0 text-2xl font-extrabold" style={{ color: accentColor }}>{item.value}</p>
       </div>
-      <p className="metric shrink-0 text-2xl font-extrabold" style={{ color: accentColor }}>
-        {item.value}
-      </p>
+      <div className="h-2.5 overflow-hidden rounded-full bg-line/70">
+        <div className="h-full rounded-full" style={{ width: `${width}%`, background: accentColor }} />
+      </div>
     </div>
   );
 }

@@ -22,20 +22,44 @@ function relationSlug(value: unknown): string {
   return "";
 }
 
-const explore = [
-  ["/health", "Health"],
-  ["/nutrition", "Nutrition"],
-  ["/recovery", "Recovery"],
-  ["/weekly", "Weekly review"],
-  ["/ai", "AI coach"],
-  ["/analytics", "Analytics"],
-  ["/records", "Records"],
-  ["/events", "Events"],
-  ["/calendar", "Calendar"],
-  ["/notifications", "Notifications"],
-  ["/log/run", "Log a run"],
-  ["/settings", "All settings"],
-];
+const journeyGroups = [
+  {
+    label: "Body & progress",
+    items: [
+      ["/recovery", "Recovery check-in", "Readiness, VO₂ max, WHOOP"],
+      ["/health", "Health", "Measurements and fitness metrics"],
+      ["/nutrition", "Nutrition", "Fueling and hydration"],
+      ["/progress", "Performance", "Tamreen score by sport"],
+      ["/records", "Records", "PRs, baselines, Strava"],
+      ["/analytics", "Analytics", "Trends over time"],
+      ["/weekly", "Weekly review", "What the last week taught"],
+    ],
+  },
+  {
+    label: "Train",
+    items: [
+      ["/calendar", "Calendar", "Week at a glance"],
+      ["/log/run", "Log a run", "Manual endurance entry"],
+      ["/log/ride", "Log a ride", "Power and FTP"],
+      ["/log/swim", "Log a swim", "Pace and distance"],
+      ["/ai", "AI coach", "Ask why the plan looks like this"],
+    ],
+  },
+  {
+    label: "Compete",
+    items: [
+      ["/events", "Events", "Race countdown and prep"],
+      ["/triathlon", "Triathlon", "Brick and race focus"],
+    ],
+  },
+  {
+    label: "Account",
+    items: [
+      ["/notifications", "Notifications", "Alerts and reminders"],
+      ["/settings", "Settings", "Units, theme, privacy"],
+    ],
+  },
+] as const;
 
 export default async function MorePage({ searchParams }: { searchParams: Promise<{ whoop?: string; strava?: string }> }) {
   const query = await searchParams;
@@ -83,7 +107,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
   });
 
   return (
-      <PageFrame eyebrow="More" title="Account and setup" lede="Profile, goals, WHOOP, and Strava live here. Everything else stays one tap away.">
+    <PageFrame eyebrow="More" title="Journeys and setup" lede="Grouped shortcuts for training, body metrics, racing, and account tools.">
       <Link href="/profile" className="app-card grid grid-cols-[auto_1fr] items-center gap-4 p-4">
         <AvatarMark name={profile?.full_name || "Athlete"} src={portrait.src} size={64} />
         <span>
@@ -96,47 +120,77 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
       </Link>
 
       <section className="app-card grid gap-3 p-4">
-        <h2 className="font-bold">Goals</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">Goals</h2>
+          <Link className="text-sm font-bold text-maroon" href="/onboarding?focus=goals">Edit</Link>
+        </div>
         <p className="text-sm text-muted">Primary goal: {primaryGoal}</p>
-        <Link className="btn btn-ghost w-fit" href="/onboarding?focus=goals">Edit goals</Link>
       </section>
 
-      <section className="app-card grid gap-3 p-4">
-        <h2 className="font-bold">WHOOP</h2>
-        <WhoopConnect
-          configured={whoop.configured}
-          connection={whoop.connection}
-          metrics={whoop.metrics}
-          noticeCode={query.whoop}
-        />
+      <section className="app-card grid gap-4 p-4">
+        <div>
+          <h2 className="font-bold">Connections</h2>
+          <p className="text-sm text-muted">Wearables and account links stay together.</p>
+        </div>
+        <div className="grid gap-4">
+          <div className="rounded-2xl bg-paper p-3">
+            <h3 className="text-sm font-bold">WHOOP</h3>
+            <div className="mt-2">
+              <WhoopConnect
+                configured={whoop.configured}
+                connection={whoop.connection}
+                metrics={whoop.metrics}
+                noticeCode={query.whoop}
+              />
+            </div>
+          </div>
+          <div className="rounded-2xl bg-paper p-3">
+            <h3 className="text-sm font-bold">Strava</h3>
+            <div className="mt-2">
+              <StravaConnect
+                configured={strava.configured}
+                connection={strava.connection}
+                noticeCode={query.strava}
+              />
+            </div>
+          </div>
+          <div className="rounded-2xl bg-paper p-3">
+            <h3 className="text-sm font-bold">Google</h3>
+            <div className="mt-2">
+              <GoogleLinkButton alreadyLinked={googleLinked} />
+            </div>
+          </div>
+        </div>
       </section>
 
-      <section className="app-card grid gap-3 p-4">
-        <h2 className="font-bold">Strava</h2>
-        <StravaConnect
-          configured={strava.configured}
-          connection={strava.connection}
-          noticeCode={query.strava}
-        />
-      </section>
+      {journeyGroups.map((group) => (
+        <section key={group.label} className="grid gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group.label}</h2>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {group.items.map(([href, label, hint]) => (
+              <li key={href}>
+                <Link className="app-card block px-4 py-3 hover:bg-paper" href={href}>
+                  <span className="block font-bold">{label}</span>
+                  <span className="block text-sm text-muted">{hint}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
 
-      <section className="app-card grid gap-3 p-4">
-        <h2 className="font-bold">Google</h2>
-        <GoogleLinkButton alreadyLinked={googleLinked} />
-      </section>
-
-      <section className="grid gap-2">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Also</h2>
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {[...explore, ...desks].map(([href, label]) => (
-            <li key={href}>
-              <Link className="block rounded-xl px-1 py-2 text-sm font-semibold text-ink underline-offset-4 hover:underline" href={href}>
-                {label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {desks.length ? (
+        <section className="grid gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Desks</h2>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {desks.map(([href, label]) => (
+              <li key={href}>
+                <Link className="app-card block px-4 py-3 font-bold hover:bg-paper" href={href}>{label}</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <form
         action={async (formData) => {
