@@ -34,7 +34,7 @@ export function OnboardingWizard({
   initialStep?: number;
   draft?: OnboardingDraft;
 }) {
-  const [step, setStep] = useState(Math.min(Math.max(initialStep, 0), 6));
+  const [step, setStep] = useState(Math.min(Math.max(initialStep, 0), 7));
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [sportsPicked, setSports] = useState<string[]>(draft.sports);
@@ -47,6 +47,7 @@ export function OnboardingWizard({
   const [pool, setPool] = useState(draft.poolAccess);
   const [bike, setBike] = useState(draft.bikeAccess);
   const [redFlag, setRedFlag] = useState(draft.redFlag);
+  const [healthConsent, setHealthConsent] = useState(draft.preferences.healthDataConsent);
   const five = clockParts(draft.benchmarks.fiveKSeconds);
   const ten = clockParts(draft.benchmarks.tenKSeconds);
   const half = clockParts(draft.benchmarks.halfSeconds);
@@ -103,7 +104,7 @@ export function OnboardingWizard({
           return;
         }
       }
-      if (step < 6) {
+      if (step < 7) {
         if (step === 1 && sportsPicked.length === 0) {
           setError("Choose at least one sport.");
           return;
@@ -239,19 +240,29 @@ export function OnboardingWizard({
             benchKg: num("bench"),
             deadliftKg: num("deadlift"),
           },
+          preferences: {
+            dietaryPattern: (text("dietaryPattern") || "none") as "none" | "halal" | "vegetarian" | "vegan" | "pescatarian" | "kosher" | "custom",
+            allergies: text("allergies").split(",").map((item) => item.trim()).filter(Boolean),
+            nutritionMode: (text("nutritionMode") || "flexible") as "flexible" | "structured",
+            schedulingMode: (text("schedulingMode") || "adaptive") as "adaptive" | "fixed",
+            sportPriorityMode: (text("sportPriorityMode") || "ai_recommended") as "ai_recommended" | "athlete_controlled",
+            assessmentPath: (text("assessmentPath") || "hybrid") as "self_report" | "benchmark" | "hybrid",
+            healthDataConsent: healthConsent,
+          },
+          activateImmediately: draft.completed,
         });
         if (!result?.ok) {
           setError(result?.message || "The plan could not be saved.");
           setPending(false);
           return;
         }
-        window.location.assign("/plan");
+        window.location.assign(result.needsConfirmation ? "/onboarding/preview" : "/plan");
       } catch {
         setError("The plan could not be saved. Try again.");
         setPending(false);
       }
     }}>
-      <p className="eyebrow">Step {step + 1} of 7</p>
+      <p className="eyebrow">Step {step + 1} of 8</p>
       <h1 className="text-3xl font-extrabold">{draft.completed ? "Update your training profile." : "Build the athlete model first."}</h1>
       {draft.completed ? <p className="text-sm text-muted">Your saved answers are filled in. Change what you want, then update the plan. Completed workouts stay.</p> : null}
       <div className={step === 0 ? "grid gap-3" : "hidden"}>
@@ -333,7 +344,7 @@ export function OnboardingWizard({
           <label>Custom wording<input name="customGoal" defaultValue={draft.customGoal} /></label>
         </div>
       <div className={step === 3 ? "grid gap-3" : "hidden"}>
-          <p className="text-sm text-muted">Leave a field blank if you do not know it. Blank means no score, not a guessed score. Saved results stay filled in.</p>
+          <p className="text-sm text-muted">Optional advanced measurements. Leave blank if you do not know them — blank means unknown, not a guessed score. You can complete these later.</p>
           <div className={sportsPicked.includes("running") || sportsPicked.includes("triathlon") ? "grid gap-3" : "hidden"}>
               <TimeFields name="fiveK" legend="5K personal best" hours={five.hours} minutes={five.minutes} seconds={five.seconds} />
               <TimeFields name="tenK" legend="10K personal best" hours={ten.hours} minutes={ten.minutes} seconds={ten.seconds} />
@@ -410,16 +421,67 @@ export function OnboardingWizard({
           <Choice on={training} label="Are you training for something?" onClick={() => setTraining((value) => !value)} />
           <div className={training ? "grid gap-3" : "hidden"}>
               <label>Event<input name="eventName" defaultValue={draft.eventName} /></label>
-              <label>Type<input name="eventType" defaultValue={draft.eventType || "race"} /></label>
+              <label>Type
+                <select name="eventType" defaultValue={draft.eventType || "race"}>
+                  <option value="race">Race / custom</option>
+                  <option value="running_5k">5K</option>
+                  <option value="sprint_triathlon">Sprint triathlon</option>
+                  <option value="olympic_triathlon">Olympic triathlon</option>
+                  <option value="t100">T100 (2 / 80 / 18)</option>
+                  <option value="ironman_70_3">Ironman 70.3</option>
+                  <option value="ironman">Full-distance triathlon</option>
+                </select>
+              </label>
               <label>Date<input name="eventDate" type="date" defaultValue={draft.eventDate} /></label>
-              <label>Distance metres<input name="distance" type="number" defaultValue={draft.distanceM} /></label>
-              <TimeFields name="goalTime" legend="Goal time" hours={goalTime.hours} minutes={goalTime.minutes} seconds={goalTime.seconds} />
+              <label>Distance metres (optional)<input name="distance" type="number" defaultValue={draft.distanceM} /></label>
+              <TimeFields name="goalTime" legend="Goal time (optional)" hours={goalTime.hours} minutes={goalTime.minutes} seconds={goalTime.seconds} />
           </div>
+        </div>
+      <div className={step === 7 ? "grid gap-3" : "hidden"}>
+          <p className="text-sm text-muted">Nutrition and scheduling preferences. Advanced diet details can be refined later in Nutrition.</p>
+          <label>Dietary preference
+            <select name="dietaryPattern" defaultValue={draft.preferences.dietaryPattern}>
+              <option value="none">No preference</option>
+              <option value="halal">Halal</option>
+              <option value="vegetarian">Vegetarian</option>
+              <option value="vegan">Vegan</option>
+              <option value="pescatarian">Pescatarian</option>
+              <option value="kosher">Kosher</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>Allergies (optional, comma-separated)<input name="allergies" defaultValue={draft.preferences.allergies} placeholder="peanuts, shellfish" /></label>
+          <label>Nutrition mode
+            <select name="nutritionMode" defaultValue={draft.preferences.nutritionMode}>
+              <option value="flexible">Flexible (default) — log food against targets</option>
+              <option value="structured">Structured — meal plans</option>
+            </select>
+          </label>
+          <label>Training schedule
+            <select name="schedulingMode" defaultValue={draft.preferences.schedulingMode}>
+              <option value="adaptive">Adaptive</option>
+              <option value="fixed">Fixed</option>
+            </select>
+          </label>
+          <label>Sport prioritization
+            <select name="sportPriorityMode" defaultValue={draft.preferences.sportPriorityMode}>
+              <option value="ai_recommended">AI-recommended with athlete control</option>
+              <option value="athlete_controlled">Athlete-controlled</option>
+            </select>
+          </label>
+          <label>Fitness assessment path
+            <select name="assessmentPath" defaultValue={draft.preferences.assessmentPath}>
+              <option value="hybrid">Hybrid</option>
+              <option value="self_report">Self-report only</option>
+              <option value="benchmark">Benchmark-focused</option>
+            </select>
+          </label>
+          <Choice on={healthConsent} label="I consent to Tamreen storing my health and nutrition measurements for coaching" onClick={() => setHealthConsent((value) => !value)} />
         </div>
       {error ? <p className="text-sm text-live">{error}</p> : null}
       <div className="flex gap-2">
         {step > 0 ? <button className="btn btn-ghost" type="button" onClick={() => { setError(""); setStep(step - 1); }}>Back</button> : null}
-        <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? "Creating…" : step === 6 ? (draft.completed ? "Update plan" : "Create with TamreenAI") : "Continue"}</button>
+        <button className="btn btn-primary" type="submit" disabled={pending}>{pending ? "Creating…" : step === 7 ? (draft.completed ? "Update plan" : "Build plan preview") : "Continue"}</button>
       </div>
     </form>
   );

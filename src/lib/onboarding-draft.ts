@@ -44,6 +44,15 @@ export type OnboardingDraft = {
     benchKg: number | null;
     deadliftKg: number | null;
   };
+  preferences: {
+    dietaryPattern: "none" | "halal" | "vegetarian" | "vegan" | "pescatarian" | "kosher" | "custom";
+    allergies: string;
+    nutritionMode: "flexible" | "structured";
+    schedulingMode: "adaptive" | "fixed";
+    sportPriorityMode: "ai_recommended" | "athlete_controlled";
+    assessmentPath: "self_report" | "benchmark" | "hybrid";
+    healthDataConsent: boolean;
+  };
 };
 
 export function blankOnboardingDraft(): OnboardingDraft {
@@ -92,6 +101,15 @@ export function blankOnboardingDraft(): OnboardingDraft {
       squatKg: null,
       benchKg: null,
       deadliftKg: null,
+    },
+    preferences: {
+      dietaryPattern: "none",
+      allergies: "",
+      nutritionMode: "flexible",
+      schedulingMode: "adaptive",
+      sportPriorityMode: "ai_recommended",
+      assessmentPath: "hybrid",
+      healthDataConsent: false,
     },
   };
 }

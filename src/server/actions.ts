@@ -134,6 +134,24 @@ const onboardingSchema = z.object({
     benchKg: z.number().positive().nullable(),
     deadliftKg: z.number().positive().nullable(),
   }),
+  preferences: z.object({
+    dietaryPattern: z.enum(["none", "halal", "vegetarian", "vegan", "pescatarian", "kosher", "custom"]).default("none"),
+    allergies: z.array(z.string().max(60)).max(20).default([]),
+    nutritionMode: z.enum(["flexible", "structured"]).default("flexible"),
+    schedulingMode: z.enum(["adaptive", "fixed"]).default("adaptive"),
+    sportPriorityMode: z.enum(["ai_recommended", "athlete_controlled"]).default("ai_recommended"),
+    assessmentPath: z.enum(["self_report", "benchmark", "hybrid"]).default("hybrid"),
+    healthDataConsent: z.boolean().default(false),
+  }).default({
+    dietaryPattern: "none",
+    allergies: [],
+    nutritionMode: "flexible",
+    schedulingMode: "adaptive",
+    sportPriorityMode: "ai_recommended",
+    assessmentPath: "hybrid",
+    healthDataConsent: false,
+  }),
+  activateImmediately: z.boolean().default(false),
 });
 
 function onboardingIssue(error: z.ZodError): string {
@@ -294,13 +312,39 @@ export async function saveOnboarding(input: z.infer<typeof onboardingSchema>) {
   const profileMessage = profileResult.error?.message ?? athleteResult.error?.message ?? sportWrite ?? goalWrite ?? injuryWrite ?? eventWrite;
   if (profileMessage) return { ok: false as const, message: profileMessage };
 
-  const written = await writePlan(supabase, user.id);
+  const prefs = parsed.preferences;
+  const { error: prefsError } = await supabase.from("athlete_preferences").upsert({
+    user_id: user.id,
+    dietary_pattern: prefs.dietaryPattern,
+    allergies: prefs.allergies,
+    nutrition_mode: prefs.nutritionMode,
+    scheduling_mode: prefs.schedulingMode,
+    sport_priority_mode: prefs.sportPriorityMode,
+    assessment_path: prefs.assessmentPath,
+    health_data_consent: prefs.healthDataConsent,
+    health_data_consent_at: prefs.healthDataConsent ? new Date().toISOString() : null,
+  });
+  if (prefsError) return { ok: false as const, message: prefsError.message };
+
+  const { data: existingProfile } = await supabase.from("profiles").select("onboarding_completed").eq("id", user.id).maybeSingle();
+  const activateNow = parsed.activateImmediately || Boolean(existingProfile?.onboarding_completed);
+  const written = await writePlan(supabase, user.id, {
+    status: activateNow ? "active" : "draft",
+    archiveActive: activateNow,
+  });
   if (!written.ok) return written;
-  const { error: doneError } = await supabase.from("profiles").update({ onboarding_completed: true }).eq("id", user.id);
-  if (doneError) return { ok: false as const, message: doneError.message };
+
+  if (activateNow) {
+    const { error: doneError } = await supabase.from("profiles").update({ onboarding_completed: true }).eq("id", user.id);
+    if (doneError) return { ok: false as const, message: doneError.message };
+  }
+
   safeRevalidate("/home");
   safeRevalidate("/plan");
-  return { ok: true as const };
+  safeRevalidate("/onboarding");
+  safeRevalidate("/nutrition");
+  safeRevalidate("/health");
+  return { ok: true as const, needsConfirmation: !activateNow };
   } catch (error) {
     return { ok: false as const, message: savedMessage(error, "The plan could not be saved.") };
   }
@@ -415,7 +459,9 @@ function finiteNumber(value: unknown): number | null {
   return null;
 }
 
-async function writePlan(supabase: Database, userId: string) {
+async function writePlan(supabase: Database, userId: string, options: { status?: "draft" | "active"; archiveActive?: boolean } = {}) {
+  const planStatus = options.status ?? "active";
+  const archiveActive = options.archiveActive ?? planStatus === "active";
   const [{ ctx, selections }, { data: library, error: libraryError }] = await Promise.all([
     loadPlanningContext(userId, supabase),
     supabase.from("exercise_library").select("id, slug, name"),
@@ -452,17 +498,19 @@ async function writePlan(supabase: Database, userId: string) {
   }
   const plan = resolved.plan;
   const today = ctx.startDate;
-  const [{ error: archiveError }, { error: clearError }] = await Promise.all([
-    supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "active"),
-    supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null),
-  ]);
-  if (archiveError) return { ok: false as const, message: archiveError.message };
+  if (archiveActive) {
+    const { error: archiveError } = await supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "active");
+    if (archiveError) return { ok: false as const, message: archiveError.message };
+  }
+  const { error: clearDraftError } = await supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "draft");
+  if (clearDraftError) return { ok: false as const, message: clearDraftError.message };
+  const { error: clearError } = await supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null);
   if (clearError) return { ok: false as const, message: clearError.message };
 
   const { data: created, error } = await supabase.from("training_plans").insert({
     user_id: userId,
     name: plan.name,
-    status: "active",
+    status: planStatus,
     start_date: plan.startDate,
     end_date: plan.endDate,
     primary_goal_slug: ctx.primaryGoal,
@@ -552,12 +600,20 @@ async function writePlan(supabase: Database, userId: string) {
     supabase.from("notifications").insert({
       user_id: userId,
       kind: "plan",
-      title: "Training plan ready",
+      title: planStatus === "draft" ? "Plan preview ready" : "Training plan ready",
       body: plan.explanation.slice(0, 180),
-      href: "/plan",
+      href: planStatus === "draft" ? "/onboarding/preview" : "/plan",
+    }),
+    supabase.from("plan_revisions").insert({
+      user_id: userId,
+      plan_id: created.id,
+      reason: planStatus === "draft" ? "onboarding_preview" : "plan_generated",
+      change_summary: plan.explanation.slice(0, 240),
+      snapshot: { source: resolved.source, sessionCount: sessions.length },
+      requires_approval: planStatus === "draft",
     }),
   ]);
-  return { ok: true as const, recommendedLoad: recommendedWeeklyLoad(ctx) };
+  return { ok: true as const, recommendedLoad: recommendedWeeklyLoad(ctx), planId: created.id, status: planStatus };
 }
 
 export async function generatePlan(input: { multipleSessionsPerDay: boolean }) {
@@ -1167,11 +1223,14 @@ export async function askCoach(question: string) {
   const { supabase, user } = await limit("coach", 40, 3600);
   const ctx = await contextFor(user.id, supabase);
   const today = ctx.startDate;
-  const [{ data: profile }, { data: workout }, { data: readinessRow }, { data: conflicts }] = await Promise.all([
+  const [{ data: profile }, { data: workout }, { data: readinessRow }, { data: conflicts }, { data: nutrition }, { data: health }, { data: prefs }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user.id).single(),
     supabase.from("workouts").select("*").eq("user_id", user.id).eq("scheduled_date", today).is("deleted_at", null).limit(1).maybeSingle(),
     supabase.from("readiness_scores").select("*").eq("user_id", user.id).order("scored_on", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("training_conflicts").select("title, explanation, severity").eq("user_id", user.id).eq("status", "open").limit(5),
+    supabase.from("nutrition_targets").select("calories_kcal, protein_g, day_type, explanation").eq("user_id", user.id).eq("target_date", today).maybeSingle(),
+    supabase.from("health_measurements").select("metric_slug, value, unit, source, measured_at").eq("user_id", user.id).is("deleted_at", null).order("measured_at", { ascending: false }).limit(6),
+    supabase.from("athlete_preferences").select("nutrition_mode, dietary_pattern, scheduling_mode").eq("user_id", user.id).maybeSingle(),
   ]);
   const answer = answerCoach({
     name: profile?.full_name ?? "Athlete",
@@ -1203,19 +1262,31 @@ export async function askCoach(question: string) {
     consistency: null,
     question,
   });
-  if (answer.proposedChanges.length) {
-    await supabase.from("ai_recommendations").insert({
-      user_id: user.id,
-      kind: "coach",
-      title: answer.title,
-      body: answer.answer,
-      factors: answer.factors,
-      proposed_changes: answer.proposedChanges,
-      status: "pending",
-    });
-  }
+  const extraFactors = [
+    nutrition
+      ? { label: "Nutrition target", detail: `${nutrition.calories_kcal} kcal (${nutrition.day_type}). ${nutrition.explanation}` }
+      : { label: "Nutrition target", detail: "No target for today yet." },
+    prefs
+      ? { label: "Preferences", detail: `Diet ${prefs.dietary_pattern}; nutrition ${prefs.nutrition_mode}; schedule ${prefs.scheduling_mode}.` }
+      : { label: "Preferences", detail: "Preferences not set." },
+    ...(health ?? []).slice(0, 3).map((row) => ({
+      label: `Health · ${row.metric_slug}`,
+      detail: `${row.value ?? "—"} ${row.unit} (${row.source})`,
+    })),
+  ];
+  const factors = [...answer.factors, ...extraFactors];
+  const enriched = { ...answer, factors };
+  await supabase.from("ai_recommendations").insert({
+    user_id: user.id,
+    kind: "coach",
+    title: enriched.title,
+    body: enriched.answer,
+    factors,
+    proposed_changes: enriched.proposedChanges,
+    status: enriched.proposedChanges.length ? "pending" : "accepted",
+  });
   revalidatePath("/ai");
-  return answer;
+  return enriched;
 }
 
 export async function saveLiveSession(input: {
@@ -1358,18 +1429,38 @@ export async function updateSettings(input: {
 
 export async function createPersonalEvent(input: { name: string; eventType: string; date: string; distanceM: number | null; goalTimeSeconds: number | null; location: string }) {
   const { supabase, user } = await limit("event", 20, 3600);
-  const { error } = await supabase.from("events").insert({
+  const { findEventTemplate, buildPhasePlan, readinessEvidence } = await import("@/services/events/templates");
+  const template = findEventTemplate(input.eventType);
+  const distanceM = input.distanceM ?? template?.distanceM ?? null;
+  const { data: created, error } = await supabase.from("events").insert({
     owner_user_id: user.id,
     name: input.name,
     event_type: input.eventType,
-    discipline: input.eventType,
+    discipline: template?.discipline ?? input.eventType,
     starts_on: input.date,
-    distance_m: input.distanceM,
+    distance_m: distanceM,
     goal_time_seconds: input.goalTimeSeconds,
     location: input.location,
-    description: "",
-  });
-  if (error) throw new Error(error.message);
+    description: template ? `Template: ${template.slug}` : "",
+  }).select("id, starts_on").single();
+  if (error || !created) throw new Error(error?.message ?? "Event was not saved.");
+  if (template) {
+    const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
+    const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+    const weeks = Math.max(1, Math.ceil((new Date(`${created.starts_on}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / (7 * 86400000)));
+    await supabase.from("event_preparation").upsert({
+      user_id: user.id,
+      event_id: created.id,
+      template_slug: template.slug,
+      objective: input.name,
+      phase_plan: buildPhasePlan(template, weeks),
+      readiness_evidence: readinessEvidence(template, {}),
+      current_capabilities: { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks },
+      notes: weeks < template.minPrepWeeks
+        ? "Preparation window is shorter than the template minimum. Volume stays conservative."
+        : "",
+    }, { onConflict: "user_id,event_id" });
+  }
   revalidatePath("/events");
   return { ok: true };
 }
