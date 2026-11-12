@@ -958,6 +958,99 @@ export async function logRecovery(input: {
   return { ok: true };
 }
 
+const fitnessMetricSchema = z.object({
+  vo2Max: z.number().min(10).max(90).nullable(),
+  maxHr: z.number().int().min(100).max(230).nullable(),
+  restingHr: z.number().int().min(30).max(220).nullable(),
+  hrv: z.number().min(1).max(300).nullable(),
+  bodyWeight: z.number().min(20).max(400).nullable(),
+  bodyFat: z.number().min(2).max(70).nullable(),
+  ftpWatts: z.number().int().min(50).max(600).nullable(),
+  source: z.enum(["manual", "estimate", "lab", "device", "other"]).default("manual"),
+});
+
+export async function saveFitnessMetrics(input: z.infer<typeof fitnessMetricSchema>) {
+  const parsed = fitnessMetricSchema.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Those fitness metrics could not be saved.");
+  const { supabase, user } = await limit("fitness_metrics", 30, 3600);
+  const measuredAt = new Date().toISOString();
+  const rows: Array<{
+    user_id: string;
+    metric_slug: string;
+    value: number;
+    unit: string;
+    measured_at: string;
+    method: string | null;
+    source: string;
+    data_origin: string;
+  }> = [];
+
+  const push = (slug: string, value: number | null, unit: string, method: string | null = null) => {
+    if (value == null || !Number.isFinite(value)) return;
+    rows.push({
+      user_id: user.id,
+      metric_slug: slug,
+      value,
+      unit,
+      measured_at: measuredAt,
+      method,
+      source: parsed.data.source,
+      data_origin: "user",
+    });
+  };
+
+  push("vo2_max", parsed.data.vo2Max, "ml/kg/min", parsed.data.source === "estimate" ? "5k_estimate" : null);
+  push("max_hr", parsed.data.maxHr, "bpm");
+  push("resting_hr", parsed.data.restingHr, "bpm");
+  push("hrv", parsed.data.hrv, "ms", "rmssd");
+  push("body_weight", parsed.data.bodyWeight, "kg");
+  push("body_fat_pct", parsed.data.bodyFat, "%");
+  push("cycling_ftp", parsed.data.ftpWatts, "W");
+
+  if (!rows.length) throw new Error("Enter at least one metric to save.");
+
+  const { error } = await supabase.from("health_measurements").insert(rows);
+  if (error) throw new Error(error.message);
+
+  const profilePatch: Record<string, number> = {};
+  if (parsed.data.bodyWeight != null) profilePatch.weight_kg = parsed.data.bodyWeight;
+  if (parsed.data.bodyFat != null) profilePatch.body_fat_pct = parsed.data.bodyFat;
+  if (parsed.data.ftpWatts != null) profilePatch.ftp_watts = parsed.data.ftpWatts;
+  if (Object.keys(profilePatch).length) {
+    await supabase.from("athlete_profiles").update(profilePatch).eq("user_id", user.id);
+  }
+
+  if (parsed.data.ftpWatts != null) {
+    const { data: existing } = await supabase
+      .from("personal_records")
+      .select("value")
+      .eq("user_id", user.id)
+      .eq("sport", "cycling")
+      .eq("record_type", "ftp")
+      .order("value", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!existing || Number(existing.value) < parsed.data.ftpWatts) {
+      const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
+      await supabase.from("personal_records").insert({
+        user_id: user.id,
+        sport: "cycling",
+        record_type: "ftp",
+        value: parsed.data.ftpWatts,
+        unit: "watts",
+        achieved_on: todayInTimeZone(athlete?.timezone || "Asia/Qatar"),
+        data_origin: "user",
+      });
+    }
+  }
+
+  revalidatePath("/recovery");
+  revalidatePath("/records");
+  revalidatePath("/home");
+  revalidatePath("/progress");
+  return { ok: true as const, saved: rows.length };
+}
+
 export async function moveWorkout(id: string, date: string, confirm: boolean) {
   const { supabase, user } = await limit("move_workout", 120, 3600);
   const { data: workout } = await supabase.from("workouts").select("*").eq("id", id).eq("user_id", user.id).single();
