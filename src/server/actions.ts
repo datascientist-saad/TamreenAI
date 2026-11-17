@@ -1748,8 +1748,17 @@ export async function createPersonalEvent(input: PersonalEventInput) {
     course,
     description: template ? `Template: ${template.slug}` : (input.notes ?? ""),
   }).select("id, starts_on").single();
-  if (error || !created) throw new Error(error?.message ?? "Event was not saved.");
-  await upsertEventPreparation(supabase, user.id, created.id, created.starts_on, input.name, templateSlug);
+  if (error || !created) {
+    return { ok: false as const, message: error?.message ?? "Event was not saved." };
+  }
+  try {
+    await upsertEventPreparation(supabase, user.id, created.id, created.starts_on, input.name, templateSlug);
+  } catch (caught) {
+    return {
+      ok: false as const,
+      message: caught instanceof Error ? caught.message : "Event saved, but preparation setup failed.",
+    };
+  }
   revalidatePath("/events");
   revalidatePath("/home");
   revalidatePath("/plan");
@@ -1766,7 +1775,9 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     .eq("owner_user_id", user.id)
     .is("deleted_at", null)
     .maybeSingle();
-  if (existingError || !existing) throw new Error(existingError?.message ?? "Event not found.");
+  if (existingError || !existing) {
+    return { ok: false as const, message: existingError?.message ?? "Event not found.", proposalCreated: false };
+  }
 
   const eventType = eventTypeFromInput(input);
   const template = resolveEventTemplate(eventType);
@@ -1805,9 +1816,17 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     description: template ? `Template: ${template.slug}` : (input.notes ?? ""),
     updated_at: new Date().toISOString(),
   }).eq("id", input.id).eq("owner_user_id", user.id);
-  if (error) throw new Error(error.message);
+  if (error) return { ok: false as const, message: error.message, proposalCreated: false };
 
-  await upsertEventPreparation(supabase, user.id, input.id, input.date, input.name, templateSlug);
+  try {
+    await upsertEventPreparation(supabase, user.id, input.id, input.date, input.name, templateSlug);
+  } catch (caught) {
+    return {
+      ok: false as const,
+      message: caught instanceof Error ? caught.message : "Event updated, but preparation setup failed.",
+      proposalCreated: false,
+    };
+  }
 
   let proposalCreated = false;
   if (materialChange && (input.status ?? "active") === "active") {
