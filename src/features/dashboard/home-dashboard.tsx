@@ -73,11 +73,19 @@ export type HomeDashboardProps = {
   scores: Score[];
   points: Array<{ day: string; load: number }>;
   target: number;
-  event: { id: string; event_type: string; name: string; days: number; priority?: string | null } | null;
-  events?: Array<{ id: string; event_type: string; name: string; days: number; priority?: string | null }>;
+  event: { id: string; event_type: string; name: string; days: number; priority?: string | null; phase?: string | null } | null;
+  events?: Array<{ id: string; event_type: string; name: string; days: number; priority?: string | null; phase?: string | null }>;
   insight: { id: string; title: string; body: string; factors: unknown; proposed_changes?: unknown } | null;
   conflict: { title: string; explanation: string } | null;
   whoop: { status: string; metrics: WhoopMetricView[] } | null;
+  recovery?: {
+    eventId: string;
+    eventName: string;
+    recoveryDays: number;
+    endDate: string;
+    medicalGuidance?: string;
+    recommendations?: Array<{ title: string; detail: string }>;
+  } | null;
 };
 
 export function HomeDashboard({
@@ -94,6 +102,7 @@ export function HomeDashboard({
   whoop,
   event,
   events = [],
+  recovery = null,
 }: HomeDashboardProps) {
   const router = useRouter();
   const [pendingInsight, startInsight] = useTransition();
@@ -105,13 +114,20 @@ export function HomeDashboard({
   const completedWeek = weekWorkouts.filter((w) => w.status === "completed").length;
   const plannedWeek = weekWorkouts.length;
   const weekMinutes = weekWorkouts.reduce((sum, w) => sum + (w.duration_min ?? 0), 0);
-  const nextWorkout = todayWorkouts.find((w) => w.status !== "completed") ?? todayWorkouts[0];
+  const todayEvent = activeEvents.find((item) => item.days === 0) ?? null;
+  const eventSessions = todayWorkouts.filter((w) => w.intensity === "race" || /event|race|marathon|triathlon|ironman/i.test(w.title));
+  const primaryToday = todayEvent || eventSessions.length
+    ? (eventSessions[0] ?? null)
+    : (todayWorkouts.find((w) => w.status !== "completed") ?? todayWorkouts[0] ?? null);
+  const nextWorkout = primaryToday;
   const dateLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   });
+  const priorityLabel = (priority?: string | null) =>
+    priority === "primary" ? "A" : priority === "secondary" ? "B" : priority === "practice" ? "C" : "—";
 
   const proposed = Array.isArray(insight?.proposed_changes)
     ? (insight.proposed_changes as Array<Record<string, unknown>>).map((row, index) => ({
@@ -160,12 +176,60 @@ export function HomeDashboard({
       <ReadinessCard readiness={readiness} />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
 
+      {recovery ? (
+        <section className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="eyebrow">Post-event recovery</p>
+              <h2 className="mt-1 text-lg font-bold">{recovery.eventName}</h2>
+              <p className="caption mt-1">~{recovery.recoveryDays} easy days · through {recovery.endDate}</p>
+            </div>
+            <Link className="btn btn-ghost btn-sm" href={`/events/${recovery.eventId}`}>Open</Link>
+          </div>
+          {recovery.medicalGuidance ? (
+            <p className="text-sm text-danger">{recovery.medicalGuidance}</p>
+          ) : (
+            <ul className="grid gap-1 text-sm text-muted">
+              {(recovery.recommendations ?? []).slice(0, 2).map((item) => (
+                <li key={item.title}><span className="font-semibold text-ink">{item.title}.</span> {item.detail}</li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-primary btn-sm" href="/recovery?tab=checkin">Readiness check-in</Link>
+            <Link className="btn btn-ghost btn-sm" href="/plan">Adjusted sessions</Link>
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-title">Today&apos;s training</h2>
+          <h2 className="section-title">{todayEvent ? "Today's event" : "Today's training"}</h2>
           <Link className="text-sm font-bold text-maroon" href="/plan">Plan</Link>
         </div>
-        {todayWorkouts.length === 0 ? (
+        {todayEvent ? (
+          <article className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
+                <Flag size={18} strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold">{todayEvent.name}</p>
+                <p className="caption">
+                  {todayEvent.event_type} · Priority {priorityLabel(todayEvent.priority)}
+                  {todayEvent.phase ? ` · ${todayEvent.phase}` : ""}
+                </p>
+                <p className="mt-2 text-sm text-muted">
+                  The event replaces ordinary training today. It counts toward load — not as a missed workout.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link className="btn btn-primary" href={`/events/${todayEvent.id}`}>Event preparation</Link>
+              <Link className="btn btn-ghost" href="/nutrition">Race nutrition</Link>
+            </div>
+          </article>
+        ) : todayWorkouts.length === 0 ? (
           <EmptyState
             title="Rest day"
             body="Nothing is scheduled. Open the plan to review the week or start a free session."
@@ -264,14 +328,17 @@ export function HomeDashboard({
         <WeekDots today={today} workouts={weekWorkouts} />
       </section>
 
-      {activeEvents[0] ? (
+      {activeEvents[0] && !todayEvent ? (
         <Link href={`/events/${activeEvents[0].id}`} className="app-card flex items-center gap-3 p-4 transition-colors hover:bg-elevated">
           <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
             <Flag size={18} strokeWidth={1.75} aria-hidden />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold">{activeEvents[0].name}</span>
-            <span className="caption">{activeEvents[0].days} days · {activeEvents[0].event_type}</span>
+            <span className="caption">
+              {activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}
+              {activeEvents[0].phase ? ` · ${activeEvents[0].phase}` : ""}
+            </span>
           </span>
         </Link>
       ) : null}

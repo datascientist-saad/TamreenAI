@@ -6,6 +6,8 @@
  * when the inputs do not exist. Nothing here invents a measurement.
  */
 
+import { applyEventDaysToSessions, scaleSessionsForTaper } from "@/services/events/adaptation";
+
 export const SEVERE_SYMPTOMS = [
   "chest_pain",
   "fainting",
@@ -1426,12 +1428,33 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
         : session.why,
     };
   });
+
+  // Event-aware pass: replace event-day training with the competition, then taper primary (and light secondary).
+  let eventAwareSessions = taggedSessions;
+  if (activeEvents.length) {
+    eventAwareSessions = applyEventDaysToSessions(taggedSessions, activeEvents);
+    const primary = activeEvents.find((event) => event.priority === "primary") ?? activeEvents[0];
+    if (primary) {
+      eventAwareSessions = scaleSessionsForTaper(eventAwareSessions, primary, primary.priority, {
+        templateSlug: null,
+      });
+    }
+    for (const secondary of activeEvents.filter((event) => event.priority === "secondary")) {
+      eventAwareSessions = scaleSessionsForTaper(eventAwareSessions, secondary, "secondary", {
+        templateSlug: null,
+      });
+    }
+  }
+
   const explanation = [
     `This is one plan for ${ctx.sports.length ? joinNames(ctx.sports) : "general training"}.`,
     ctx.eventName && ctx.eventDate
       ? `${ctx.eventName} is on ${ctx.eventDate}, so the block order moves from base toward a taper instead of repeating four unrelated programs.`
       : "No event date is set, so the plan uses an eight-to-sixteen week base and build rhythm with a recovery week every fourth week.",
     multiEventNotes,
+    activeEvents.length
+      ? "Confirmed event days replace ordinary workouts. Those days count as training load, not missed sessions."
+      : "",
     trainingNotes.join(" ") || "The week follows the sports and the days you selected.",
     ctx.poolAccess ? "" : "Pool access is off, so swim sessions are not scheduled.",
     ctx.redFlag
@@ -1448,7 +1471,7 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
     startDate: ctx.startDate,
     endDate,
     blocks,
-    sessions: enforceDailyLimits(taggedSessions, ctx.minutesPerDay, maxSessionsPerDay(ctx)),
+    sessions: enforceDailyLimits(eventAwareSessions, ctx.minutesPerDay, maxSessionsPerDay(ctx)),
   };
 }
 

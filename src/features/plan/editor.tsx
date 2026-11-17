@@ -260,7 +260,13 @@ export function PlanEditor({
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
+                            {workout.is_event_session ? (
+                              <span className="chip border border-maroon text-maroon">Event</span>
+                            ) : (
+                              <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
+                            )}
+                            {workout.phase_hint === "taper" ? <span className="chip">Taper</span> : null}
+                            {workout.phase_hint === "recovery" ? <span className="chip">Recovery</span> : null}
                             <span className={`chip status-${workout.status}`}>{statusLabel(workout.status)}</span>
                           </div>
                           <h3 className="mt-1.5 text-base font-bold leading-snug">{workout.title}</h3>
@@ -284,7 +290,9 @@ export function PlanEditor({
                       ) : null}
                       {(workout.objective || workout.why_text) ? (
                         <details className="mt-2">
-                          <summary className="cursor-pointer text-sm font-semibold text-muted">Why this workout</summary>
+                          <summary className="cursor-pointer text-sm font-semibold text-muted">
+                            {workout.is_event_session || workout.phase_hint === "taper" ? "Why was this changed?" : "Why this workout"}
+                          </summary>
                           <div className="mt-1.5 grid gap-1 text-sm text-muted">
                             {workout.objective ? <p>{workout.objective}</p> : null}
                             {workout.why_text ? <p>{workout.why_text}</p> : null}
@@ -292,8 +300,12 @@ export function PlanEditor({
                         </details>
                       ) : null}
                       <div className="mt-2.5 flex flex-wrap gap-2">
-                        <Link className="btn btn-primary btn-sm" href={`/train/${workout.id}`}>Open</Link>
-                        {date === today && workout.exercises.some((exercise) => exercise.liveSlug) ? (
+                        {workout.is_event_session && workout.event_id ? (
+                          <Link className="btn btn-primary btn-sm" href={`/events/${workout.event_id}`}>Event prep</Link>
+                        ) : (
+                          <Link className="btn btn-primary btn-sm" href={`/train/${workout.id}`}>Open</Link>
+                        )}
+                        {!workout.is_event_session && date === today && workout.exercises.some((exercise) => exercise.liveSlug) ? (
                           <Link className="btn btn-ghost btn-sm" href={`/live?workout=${workout.id}`}>Camera</Link>
                         ) : null}
                       </div>

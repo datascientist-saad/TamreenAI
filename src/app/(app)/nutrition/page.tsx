@@ -12,14 +12,30 @@ export default async function NutritionPage() {
   const { supabase, user } = await requireUser();
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
-  const [{ data: prefs }, { data: target }, { data: entries }, { data: hydration }, { data: foods }, { data: workouts }] = await Promise.all([
+  const [{ data: prefs }, { data: target }, { data: entries }, { data: hydration }, { data: foods }, { data: workouts }, { data: upcomingEvent }] = await Promise.all([
     supabase.from("athlete_preferences").select("nutrition_mode, dietary_pattern, allergies").eq("user_id", user.id).maybeSingle(),
     supabase.from("nutrition_targets").select("*").eq("user_id", user.id).eq("target_date", today).maybeSingle(),
     supabase.from("food_entries").select("id, food_name, meal_slot, calories_kcal, protein_g, carbs_g, fat_g, entry_method, confirmed").eq("user_id", user.id).eq("logged_on", today).is("deleted_at", null).order("created_at", { ascending: false }),
     supabase.from("hydration_entries").select("amount_ml").eq("user_id", user.id).eq("logged_on", today),
     supabase.from("food_catalog").select("id, name, brand, serving_label, calories_kcal, protein_g, carbs_g, fat_g, is_halal, barcode").order("name").limit(200),
     supabase.from("workouts").select("title, scheduled_date, duration_min, sport, intensity").eq("user_id", user.id).eq("scheduled_date", today).eq("status", "planned").is("deleted_at", null),
+    supabase
+      .from("events")
+      .select("id, name, starts_on, priority, event_preparation(fueling_practice)")
+      .eq("owner_user_id", user.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .gte("starts_on", today)
+      .order("starts_on")
+      .limit(1)
+      .maybeSingle(),
   ]);
+  const prepRow = Array.isArray(upcomingEvent?.event_preparation)
+    ? upcomingEvent?.event_preparation[0]
+    : upcomingEvent?.event_preparation;
+  const fueling = prepRow && typeof prepRow === "object" && prepRow.fueling_practice && typeof prepRow.fueling_practice === "object"
+    ? prepRow.fueling_practice as { sections?: Array<{ id: string; title: string; bullets: string[] }>; carbLoadingRecommended?: boolean }
+    : null;
 
   const eaten = {
     calories: (entries ?? []).reduce((sum, row) => sum + Number(row.calories_kcal ?? 0), 0),
@@ -84,6 +100,27 @@ export default async function NutritionPage() {
           <p className="mt-2 text-muted">{target.explanation}</p>
           <p className="mt-2 caption">BMR {target.bmr_kcal} · TDEE {target.tdee_kcal} · Exercise {target.exercise_kcal} · Goal adj {target.goal_adjustment_kcal}</p>
         </details>
+      ) : null}
+
+      {upcomingEvent && fueling?.sections?.length ? (
+        <section className="app-card grid gap-3 p-4">
+          <h2 className="flex items-center gap-2 section-title"><Utensils size={16} strokeWidth={1.75} aria-hidden /> {upcomingEvent.name} — race nutrition</h2>
+          <p className="caption">
+            {upcomingEvent.starts_on}
+            {fueling.carbLoadingRecommended ? " · Carb loading justified in final days" : " · No loading protocol"}
+          </p>
+          <div className="grid gap-2">
+            {fueling.sections.slice(0, 5).map((section) => (
+              <details key={section.id} className="rounded-xl bg-paper px-3 py-2 text-sm">
+                <summary className="cursor-pointer font-semibold">{section.title}</summary>
+                <ul className="mt-2 grid gap-1 text-muted">
+                  {section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+                </ul>
+              </details>
+            ))}
+          </div>
+          <Link className="btn btn-ghost btn-sm" href={`/events/${upcomingEvent.id}`}>Event preparation</Link>
+        </section>
       ) : null}
 
       {(workouts ?? []).length ? (

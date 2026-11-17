@@ -573,30 +573,44 @@ async function writePlan(supabase: Database, userId: string, options: { status?:
     return true;
   });
   if (!sessions.length) return { ok: false as const, message: "Choose at least one day you can train." };
-  const workoutRows = sessions.map((session, index) => ({
-    plan_id: created.id,
-    block_id: blockId(session.date),
-    user_id: userId,
-    scheduled_date: session.date,
-    sport: session.sport,
-    title: session.title,
-    objective: session.objective,
-    duration_min: session.durationMin,
-    intensity: session.intensity,
-    expected_load: session.expectedLoad,
-    importance: session.importance,
-    recovery_hours: session.recoveryHours,
-    status: "planned",
-    structure: { ...session.structure, clientKey: index },
-    zones: session.zones,
-    why_text: session.why,
-  }));
+  const workoutRows = sessions.map((session, index) => {
+    const structure = session.structure as {
+      isEventSession?: boolean;
+      eventId?: string;
+      supportsEventIds?: string[];
+    };
+    const eventId = structure.isEventSession
+      ? (structure.eventId ?? structure.supportsEventIds?.[0] ?? null)
+      : null;
+    return {
+      plan_id: created.id,
+      block_id: blockId(session.date),
+      user_id: userId,
+      scheduled_date: session.date,
+      sport: session.sport,
+      title: session.title,
+      objective: session.objective,
+      duration_min: session.durationMin,
+      intensity: session.intensity,
+      expected_load: session.expectedLoad,
+      importance: session.importance,
+      recovery_hours: session.recoveryHours,
+      status: "planned",
+      structure: { ...session.structure, clientKey: index },
+      zones: session.zones,
+      why_text: session.why,
+      is_event_session: Boolean(structure.isEventSession),
+      event_id: eventId,
+    };
+  });
   const { data: workouts, error: workoutError } = await supabase.from("workouts").insert(workoutRows).select("id, structure");
   if (workoutError) return { ok: false as const, message: workoutError.message };
   const byKey = new Map((workouts ?? []).map((workout) => [Number((workout.structure as { clientKey?: number }).clientKey), workout.id]));
   const exerciseRows = sessions.flatMap((session, index) => {
     const workoutId = byKey.get(index);
     if (!workoutId) return [];
+    // Event sessions are competitions — no prescribed gym exercises.
+    if ((session.structure as { isEventSession?: boolean }).isEventSession) return [];
     return session.exercises.map((exercise, sort) => ({
       workout_id: workoutId,
       exercise_id: exerciseId.get(exercise.slug) ?? null,
@@ -618,17 +632,27 @@ async function writePlan(supabase: Database, userId: string, options: { status?:
   const eventLinks = sessions.flatMap((session, index) => {
     const workoutId = byKey.get(index);
     if (!workoutId) return [];
-    const ids = Array.isArray((session.structure as { supportsEventIds?: unknown }).supportsEventIds)
-      ? ((session.structure as { supportsEventIds: string[] }).supportsEventIds)
-      : [];
+    const structure = session.structure as {
+      isEventSession?: boolean;
+      eventId?: string;
+      supportsEventIds?: string[];
+      supportsEventNames?: string[];
+    };
+    const ids = structure.isEventSession && structure.eventId
+      ? [structure.eventId]
+      : Array.isArray(structure.supportsEventIds)
+        ? structure.supportsEventIds
+        : [];
     return ids.map((eventId, order) => ({
       workout_id: workoutId,
       event_id: eventId,
       user_id: userId,
-      contribution: order === 0 ? "primary" : "shared",
-      rationale: Array.isArray((session.structure as { supportsEventNames?: string[] }).supportsEventNames)
-        ? `Supports ${(session.structure as { supportsEventNames: string[] }).supportsEventNames.join(", ")}`
-        : "Shared multi-event stimulus",
+      contribution: structure.isEventSession ? "primary" : order === 0 ? "primary" : "shared",
+      rationale: structure.isEventSession
+        ? "Event day competition session"
+        : Array.isArray(structure.supportsEventNames)
+          ? `Supports ${structure.supportsEventNames.join(", ")}`
+          : "Shared multi-event stimulus",
     }));
   });
   if (eventLinks.length) {
@@ -693,20 +717,85 @@ export async function respondToRecommendation(id: string, accept: boolean) {
   if (!row || row.status !== "pending") throw new Error("That proposal is no longer pending.");
   if (!accept) {
     await supabase.from("ai_recommendations").update({ status: "rejected" }).eq("id", id);
+    await supabase.from("training_adaptations").update({ approval_status: "rejected" })
+      .eq("user_id", user.id)
+      .eq("recommendation_id", id)
+      .eq("approval_status", "pending");
     revalidatePath("/home");
     return { ok: true };
   }
-  if (row.kind === "event_edit") {
+  if (row.kind === "event_edit" || row.kind === "event_create") {
+    // Apply pending training_adaptations for this recommendation, then rebuild future plan.
+    const { data: adaptations } = await supabase
+      .from("training_adaptations")
+      .select("id, adaptation_type, original_workout_id, proposed_workout, approval_status")
+      .eq("user_id", user.id)
+      .eq("recommendation_id", id)
+      .eq("approval_status", "pending");
+    for (const adaptation of adaptations ?? []) {
+      const proposed = (adaptation.proposed_workout ?? {}) as {
+        date?: string;
+        title?: string;
+        sport?: string;
+        durationMin?: number;
+        intensity?: string;
+        why?: string;
+        isEventSession?: boolean;
+        eventId?: string;
+      };
+      if (
+        (adaptation.adaptation_type === "reduce_volume"
+          || adaptation.adaptation_type === "reduce_intensity"
+          || adaptation.adaptation_type === "replace")
+        && adaptation.original_workout_id
+        && proposed.date
+        && proposed.title
+        && proposed.sport
+        && proposed.durationMin
+        && proposed.intensity
+      ) {
+        await supabase.from("workouts").update({
+          title: proposed.title,
+          sport: proposed.sport,
+          duration_min: proposed.durationMin,
+          intensity: proposed.intensity,
+          expected_load: sessionLoad(proposed.durationMin, proposed.intensity as Intensity, proposed.sport as Sport),
+          why_text: proposed.why ?? "Accepted event taper adjustment",
+          updated_at: new Date().toISOString(),
+        }).eq("id", adaptation.original_workout_id).eq("user_id", user.id).neq("status", "completed");
+      } else if (adaptation.adaptation_type === "remove" && adaptation.original_workout_id) {
+        await supabase.from("workouts").update({
+          deleted_at: new Date().toISOString(),
+          why_text: "Removed by accepted event adaptation",
+          updated_at: new Date().toISOString(),
+        }).eq("id", adaptation.original_workout_id).eq("user_id", user.id).neq("status", "completed");
+      }
+      await supabase.from("training_adaptations").update({
+        approval_status: "applied",
+        applied_at: new Date().toISOString(),
+      }).eq("id", adaptation.id);
+    }
     const written = await writePlan(supabase, user.id, { status: "active", archiveActive: true });
     if (!written.ok) throw new Error(written.message);
     await supabase.from("ai_recommendations").update({ status: "accepted" }).eq("id", id);
     await supabase.from("notifications").insert({
       user_id: user.id,
       kind: "plan_adjustment",
-      title: "Multi-event plan rebuilt",
-      body: "Future sessions were rebuilt around your updated events. Completed workouts stayed unchanged.",
+      title: "Event-aware plan updated",
+      body: "Future sessions were adapted around your events. Completed workouts stayed unchanged.",
       href: "/plan",
     });
+    revalidatePath("/home");
+    revalidatePath("/plan");
+    revalidatePath("/events");
+    return { ok: true };
+  }
+  if (row.kind === "event_cancel") {
+    await supabase.from("training_adaptations").update({
+      approval_status: "applied",
+      applied_at: new Date().toISOString(),
+    }).eq("user_id", user.id).eq("recommendation_id", id).eq("approval_status", "pending");
+    await supabase.from("ai_recommendations").update({ status: "accepted" }).eq("id", id);
     revalidatePath("/home");
     revalidatePath("/plan");
     revalidatePath("/events");
@@ -1261,9 +1350,13 @@ export async function setWorkoutStatus(id: string, status: "skipped" | "complete
   const { supabase, user } = await limit("workout_status", 80, 3600);
   const { data: workout } = await supabase.from("workouts").select("*").eq("id", id).eq("user_id", user.id).single();
   if (!workout) throw new Error("Workout not found.");
+  // Event sessions are competitions — never treat them as missed training.
+  if (workout.is_event_session && status === "missed") {
+    throw new Error("Event days are not counted as missed workouts. Mark the event completed or update the event status instead.");
+  }
   const { error } = await supabase.from("workouts").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
-  if (status === "missed" || status === "skipped") {
+  if ((status === "missed" || status === "skipped") && !workout.is_event_session) {
     const { data: upcoming } = await supabase.from("workouts").select("*").eq("user_id", user.id).eq("status", "planned").is("deleted_at", null).gt("scheduled_date", workout.scheduled_date).order("scheduled_date").limit(4);
     const { data: recovery } = await supabase.from("readiness_scores").select("overall").eq("user_id", user.id).order("scored_on", { ascending: false }).limit(1).maybeSingle();
     const adaptation = adaptMissedSession(toPlanned(workout), (upcoming ?? []).map(toPlanned), (recovery?.overall ?? 70) < 55);
@@ -1695,31 +1788,290 @@ async function upsertEventPreparation(
   startsOn: string,
   name: string,
   templateSlug: string | null,
+  extras?: { fuelingPractice?: Record<string, unknown> | null; phasePlan?: unknown },
 ) {
   const { resolveEventTemplate } = await import("@/services/events/catalog");
   const { buildPhasePlan, readinessEvidence } = await import("@/services/events/templates");
   const template = templateSlug ? resolveEventTemplate(templateSlug) : null;
-  if (!template) return;
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", userId).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
   const weeks = Math.max(1, Math.ceil((new Date(`${startsOn}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / (7 * 86400000)));
+  const phasePlan = extras?.phasePlan
+    ?? (template ? buildPhasePlan(template, weeks) : []);
   await supabase.from("event_preparation").upsert({
     user_id: userId,
     event_id: eventId,
-    template_slug: template.slug,
+    template_slug: template?.slug ?? templateSlug,
     objective: name,
-    phase_plan: buildPhasePlan(template, weeks),
-    readiness_evidence: readinessEvidence(template, {}),
-    current_capabilities: { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks },
-    notes: weeks < template.minPrepWeeks
+    phase_plan: phasePlan,
+    readiness_evidence: template ? readinessEvidence(template, {}) : [],
+    current_capabilities: template
+      ? { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks }
+      : { weeksAvailable: weeks },
+    fueling_practice: extras?.fuelingPractice ?? {},
+    notes: template && weeks < template.minPrepWeeks
       ? "Preparation window is shorter than the template minimum. Volume stays conservative."
       : "",
   }, { onConflict: "user_id,event_id" });
 }
 
+/** Persist dated phases, adaptations, and an approval recommendation for an event change. */
+async function runEventAwareRecalculation(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  input: {
+    trigger: "event_create" | "event_edit" | "event_cancel" | "event_complete" | "priority_change";
+    eventId: string;
+    endsOn?: string | null;
+    templateSlug?: string | null;
+    createProposal?: boolean;
+  },
+) {
+  const { recalculateForEvent, adaptationsToProposedChanges, planningEventsFromRows } = await import("@/services/events/recalculate");
+  const { data: athlete } = await supabase.from("athlete_profiles").select("timezone, experience_level").eq("user_id", userId).maybeSingle();
+  const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+  const [{ data: eventRows }, { data: workouts }, { data: readiness }, { data: prefs }] = await Promise.all([
+    supabase
+      .from("events")
+      .select("id, name, starts_on, ends_on, distance_m, swim_m, bike_m, run_m, goal_time_seconds, priority, status, discipline, event_type, course, template_slug")
+      .eq("owner_user_id", userId)
+      .is("deleted_at", null)
+      .neq("status", "cancelled"),
+    supabase
+      .from("workouts")
+      .select("id, scheduled_date, sport, title, duration_min, intensity, importance, status, expected_load, is_event_session, event_id")
+      .eq("user_id", userId)
+      .gte("scheduled_date", today)
+      .is("deleted_at", null)
+      .neq("status", "completed")
+      .limit(200),
+    supabase
+      .from("readiness_scores")
+      .select("overall")
+      .eq("user_id", userId)
+      .order("scored_on", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("athlete_preferences")
+      .select("dietary_pattern, allergies")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+
+  const planning = planningEventsFromRows(eventRows ?? [], today);
+  // Include subject even if just cancelled (may be filtered out).
+  let events = planning;
+  if (!events.some((row) => row.id === input.eventId) && input.trigger === "event_cancel") {
+    const cancelled = (eventRows ?? []).find((row) => row.id === input.eventId)
+      ?? (await supabase.from("events").select("id, name, starts_on, distance_m, swim_m, bike_m, run_m, goal_time_seconds, priority, status, discipline, event_type, course").eq("id", input.eventId).maybeSingle()).data;
+    if (cancelled) {
+      events = planningEventsFromRows([{ ...cancelled, status: "active" }], today);
+    }
+  }
+  if (!events.some((row) => row.id === input.eventId)) {
+    return { ok: false as const, message: "Event not available for recalculation.", proposalCreated: false };
+  }
+
+  const subjectRow = (eventRows ?? []).find((row) => row.id === input.eventId);
+  const result = recalculateForEvent({
+    today,
+    trigger: input.trigger,
+    athlete: {
+      experienceLevel: athlete?.experience_level ?? null,
+      readinessOverall: readiness?.overall == null ? null : Number(readiness.overall),
+      dietaryPattern: prefs?.dietary_pattern ?? null,
+      allergies: prefs?.allergies ?? null,
+    },
+    events,
+    subjectEventId: input.eventId,
+    templateSlug: input.templateSlug ?? subjectRow?.template_slug ?? null,
+    endsOn: input.endsOn ?? subjectRow?.ends_on ?? null,
+    upcomingWorkouts: (workouts ?? []).map((row) => ({
+      id: row.id,
+      date: row.scheduled_date,
+      sport: row.sport,
+      title: row.title,
+      durationMin: row.duration_min,
+      intensity: row.intensity,
+      importance: row.importance ?? "supporting",
+      status: row.status,
+      expectedLoad: row.expected_load == null ? undefined : Number(row.expected_load),
+      isEventSession: Boolean(row.is_event_session),
+    })),
+  });
+
+  // Persist dated phases (replace set for this event).
+  await supabase.from("event_training_phases").delete().eq("user_id", userId).eq("event_id", input.eventId);
+  if (result.phases.length && input.trigger !== "event_cancel") {
+    await supabase.from("event_training_phases").insert(
+      result.phases.map((phase) => ({
+        user_id: userId,
+        event_id: input.eventId,
+        phase: phase.phase,
+        start_date: phase.startDate,
+        end_date: phase.endDate,
+        objectives: phase.objectives,
+        adjustments: phase.adjustments,
+        sort_order: phase.sortOrder,
+      })),
+    );
+  }
+
+  await upsertEventPreparation(
+    supabase,
+    userId,
+    input.eventId,
+    result.subject.startsOn,
+    result.subject.name,
+    input.templateSlug ?? subjectRow?.template_slug ?? null,
+    {
+      fuelingPractice: result.fuelingPractice,
+      phasePlan: result.phases.map((phase) => ({
+        phase: phase.phase,
+        focus: phase.objectives,
+        startDate: phase.startDate,
+        endDate: phase.endDate,
+        weeksHint: Math.max(1, Math.ceil((Date.parse(`${phase.endDate}T00:00:00Z`) - Date.parse(`${phase.startDate}T00:00:00Z`)) / (7 * 86400000) + 1)),
+      })),
+    },
+  );
+
+  // Supersede prior pending adaptations for this event to keep recalculation idempotent.
+  await supabase
+    .from("training_adaptations")
+    .update({ approval_status: "superseded" })
+    .eq("user_id", userId)
+    .eq("event_id", input.eventId)
+    .eq("approval_status", "pending");
+
+  let recommendationId: string | null = null;
+  let proposalCreated = false;
+  if (input.createProposal !== false && result.adaptations.length) {
+    const { data: proposal } = await supabase.from("ai_recommendations").insert({
+      user_id: userId,
+      kind: input.trigger === "event_create" ? "event_create" : input.trigger === "event_cancel" ? "event_cancel" : "event_edit",
+      title: result.summary.title,
+      body: result.summary.body,
+      factors: result.summary.factors,
+      proposed_changes: adaptationsToProposedChanges(result.adaptations),
+      status: "pending",
+    }).select("id").single();
+    recommendationId = proposal?.id ?? null;
+    proposalCreated = Boolean(recommendationId);
+    if (recommendationId) {
+      await supabase.from("notifications").insert({
+        user_id: userId,
+        kind: "plan",
+        title: result.summary.title,
+        body: result.compatibility.status === "Compatible"
+          ? "Review proposed training adjustments for your event."
+          : `Event compatibility: ${result.compatibility.status}. Review proposed changes.`,
+        href: "/home",
+      });
+    }
+  }
+
+  if (result.adaptations.length) {
+    await supabase.from("training_adaptations").insert(
+      result.adaptations.map((row) => ({
+        user_id: userId,
+        event_id: input.eventId,
+        recommendation_id: recommendationId,
+        original_workout_id: row.originalWorkoutId,
+        original_snapshot: row.original ?? {},
+        proposed_workout: row.proposed ?? {},
+        adaptation_type: row.adaptationType,
+        explanation: row.explanation,
+        expected_impact: row.expectedImpact,
+        approval_status: "pending",
+        idempotency_key: row.idempotencyKey,
+      })),
+    );
+  }
+
+  // Apply event-day soft-block immediately: hide conflicting planned sessions on event dates.
+  if (input.trigger !== "event_cancel" && input.trigger !== "event_complete") {
+    const eventDates = result.adaptations
+      .filter((row) => row.adaptationType === "event_day_replace" && row.originalWorkoutId)
+      .map((row) => row.originalWorkoutId!);
+    if (eventDates.length) {
+      // Soft-delete conflicting planned workouts on event day (not counted as missed).
+      await supabase
+        .from("workouts")
+        .update({
+          deleted_at: new Date().toISOString(),
+          why_text: "Replaced by event day — not a missed workout.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .in("id", eventDates)
+        .neq("status", "completed")
+        .is("deleted_at", null);
+    }
+
+    // Insert event-day sessions that were proposed (safe automatic constraint).
+    const inserts = result.adaptations.filter((row) => row.adaptationType === "event_day_replace" && row.proposed?.isEventSession && row.proposed);
+    for (const row of inserts) {
+      const proposed = row.proposed!;
+      const { data: existingEventSession } = await supabase
+        .from("workouts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("scheduled_date", proposed.date)
+        .eq("is_event_session", true)
+        .eq("event_id", input.eventId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (existingEventSession) continue;
+      await supabase.from("workouts").insert({
+        user_id: userId,
+        scheduled_date: proposed.date,
+        sport: proposed.sport,
+        title: proposed.title,
+        objective: proposed.objective ?? "Event day",
+        duration_min: proposed.durationMin,
+        intensity: proposed.intensity,
+        expected_load: Math.round(proposed.durationMin * 0.85),
+        importance: "key",
+        why_text: proposed.why ?? row.explanation,
+        status: "planned",
+        is_event_session: true,
+        event_id: input.eventId,
+        structure: {
+          isEventSession: true,
+          eventId: input.eventId,
+          supportsEventIds: [input.eventId],
+        },
+      });
+    }
+  }
+
+  if (input.trigger === "event_cancel") {
+    await supabase
+      .from("workouts")
+      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("event_id", input.eventId)
+      .eq("is_event_session", true)
+      .neq("status", "completed")
+      .is("deleted_at", null);
+    await supabase.from("event_training_phases").delete().eq("user_id", userId).eq("event_id", input.eventId);
+  }
+
+  return {
+    ok: true as const,
+    proposalCreated,
+    compatibility: result.compatibility.status,
+    adaptationCount: result.adaptations.length,
+    priorityRecommendation: result.priorityRecommendation,
+  };
+}
+
 export async function createPersonalEvent(input: PersonalEventInput) {
   const { supabase, user } = await limit("event", 20, 3600);
   const { resolveEventTemplate } = await import("@/services/events/catalog");
+  const { recommendEventPriority } = await import("@/services/events/priority");
   const eventType = eventTypeFromInput(input);
   const template = resolveEventTemplate(eventType);
   const distanceM = input.distanceM ?? template?.distanceM ?? null;
@@ -1728,41 +2080,89 @@ export async function createPersonalEvent(input: PersonalEventInput) {
   const runM = input.runM ?? template?.runM ?? null;
   const templateSlug = template?.slug ?? null;
   const course = eventCoursePayload({ ...input, swimM, bikeM, runM }, templateSlug);
+
+  const { data: athlete } = await supabase.from("athlete_profiles").select("timezone, experience_level").eq("user_id", user.id).maybeSingle();
+  const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+  const { data: otherEvents } = await supabase
+    .from("events")
+    .select("name, starts_on, priority, distance_m")
+    .eq("owner_user_id", user.id)
+    .eq("status", "active")
+    .is("deleted_at", null);
+  const priorityAdvice = recommendEventPriority({
+    distanceM,
+    swimM,
+    bikeM,
+    runM,
+    discipline: template?.discipline ?? input.category ?? eventType,
+    templateSlug,
+    experienceLevel: input.experienceLevel || athlete?.experience_level || null,
+    otherEvents: (otherEvents ?? []).map((row) => ({
+      startsOn: row.starts_on,
+      priority: (row.priority as "primary" | "secondary" | "practice") || "primary",
+      distanceM: row.distance_m == null ? null : Number(row.distance_m),
+      name: row.name,
+    })),
+    eventDate: input.date,
+    today,
+  });
+  const priority = input.priority ?? priorityAdvice.recommended;
+
   const { data: created, error } = await supabase.from("events").insert({
     owner_user_id: user.id,
     name: input.name,
     event_type: eventType,
     discipline: template?.discipline ?? input.category ?? eventType,
     starts_on: input.date,
+    ends_on: input.date,
     distance_m: distanceM,
     swim_m: swimM,
     bike_m: bikeM,
     run_m: runM,
     template_slug: templateSlug,
-    priority: input.priority ?? "primary",
+    priority,
     status: input.status ?? "active",
     experience_level: input.experienceLevel || null,
     athlete_notes: input.notes ?? "",
     goal_time_seconds: input.goalTimeSeconds,
     location: input.location,
-    course,
+    course: { ...course, priority_recommendation: priorityAdvice },
     description: template ? `Template: ${template.slug}` : (input.notes ?? ""),
   }).select("id, starts_on").single();
   if (error || !created) {
     return { ok: false as const, message: error?.message ?? "Event was not saved." };
   }
+  let proposalCreated = false;
+  let compatibility: string | null = null;
   try {
-    await upsertEventPreparation(supabase, user.id, created.id, created.starts_on, input.name, templateSlug);
+    const recalc = await runEventAwareRecalculation(supabase, user.id, {
+      trigger: "event_create",
+      eventId: created.id,
+      endsOn: input.date,
+      templateSlug,
+      createProposal: true,
+    });
+    proposalCreated = recalc.ok ? Boolean(recalc.proposalCreated) : false;
+    compatibility = recalc.ok ? recalc.compatibility : null;
   } catch (caught) {
     return {
       ok: false as const,
-      message: caught instanceof Error ? caught.message : "Event saved, but preparation setup failed.",
+      message: caught instanceof Error ? caught.message : "Event saved, but adaptation setup failed.",
+      id: created.id,
     };
   }
   revalidatePath("/events");
   revalidatePath("/home");
   revalidatePath("/plan");
-  return { ok: true as const, id: created.id };
+  revalidatePath("/nutrition");
+  return {
+    ok: true as const,
+    id: created.id,
+    proposalCreated,
+    compatibility,
+    priorityRecommended: priorityAdvice.recommended,
+    priorityRationale: priorityAdvice.rationale,
+  };
 }
 
 export async function updatePersonalEvent(input: PersonalEventInput & { id: string }) {
@@ -1796,18 +2196,20 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     || existing.event_type !== eventType
     || (existing.status ?? "active") !== (input.status ?? "active");
 
+  const nextStatus = input.status ?? "active";
   const { error } = await supabase.from("events").update({
     name: input.name,
     event_type: eventType,
     discipline: template?.discipline ?? input.category ?? eventType,
     starts_on: input.date,
+    ends_on: input.date,
     distance_m: distanceM,
     swim_m: swimM,
     bike_m: bikeM,
     run_m: runM,
     template_slug: templateSlug,
     priority: input.priority ?? "primary",
-    status: input.status ?? "active",
+    status: nextStatus,
     experience_level: input.experienceLevel || null,
     athlete_notes: input.notes ?? "",
     goal_time_seconds: input.goalTimeSeconds,
@@ -1818,8 +2220,28 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
   }).eq("id", input.id).eq("owner_user_id", user.id);
   if (error) return { ok: false as const, message: error.message, proposalCreated: false };
 
+  let proposalCreated = false;
   try {
-    await upsertEventPreparation(supabase, user.id, input.id, input.date, input.name, templateSlug);
+    if (nextStatus === "cancelled") {
+      const recalc = await runEventAwareRecalculation(supabase, user.id, {
+        trigger: "event_cancel",
+        eventId: input.id,
+        templateSlug,
+        createProposal: true,
+      });
+      proposalCreated = recalc.ok ? Boolean(recalc.proposalCreated) : false;
+    } else if (materialChange) {
+      const recalc = await runEventAwareRecalculation(supabase, user.id, {
+        trigger: nextStatus === "completed" ? "event_complete" : "event_edit",
+        eventId: input.id,
+        endsOn: input.date,
+        templateSlug,
+        createProposal: nextStatus !== "completed",
+      });
+      proposalCreated = recalc.ok ? Boolean(recalc.proposalCreated) : false;
+    } else {
+      await upsertEventPreparation(supabase, user.id, input.id, input.date, input.name, templateSlug);
+    }
   } catch (caught) {
     return {
       ok: false as const,
@@ -1828,46 +2250,11 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     };
   }
 
-  let proposalCreated = false;
-  if (materialChange && (input.status ?? "active") === "active") {
-    const { data: proposal, error: proposalError } = await supabase.from("ai_recommendations").insert({
-      user_id: user.id,
-      kind: "event_edit",
-      title: `Update plan for ${input.name}`,
-      body: `You changed ${input.name}. Tamreen can rebuild the integrated multi-event schedule around the new date, distances, and priority. Completed workouts stay unchanged.`,
-      factors: [
-        { label: "Previous date", detail: existing.starts_on },
-        { label: "New date", detail: input.date },
-        { label: "Priority", detail: input.priority ?? "primary" },
-        { label: "Distances", detail: `total ${distanceM ?? "—"} m · swim ${swimM ?? "—"} · bike ${bikeM ?? "—"} · run ${runM ?? "—"}` },
-      ],
-      proposed_changes: [{
-        id: input.id,
-        title: input.name,
-        fromDate: existing.starts_on,
-        toDate: input.date,
-        reason: "Event requirements changed. Accept to rebuild future planned sessions only.",
-        impact: "Archives the current active plan version and writes a new integrated schedule. Completed history is preserved.",
-        eventGoals: [input.name],
-      }],
-      status: "pending",
-    }).select("id").single();
-    if (!proposalError && proposal) {
-      proposalCreated = true;
-      await supabase.from("notifications").insert({
-        user_id: user.id,
-        kind: "plan",
-        title: "Event change needs approval",
-        body: `${input.name} changed. Review the proposed plan update before future sessions move.`,
-        href: "/home",
-      });
-    }
-  }
-
   revalidatePath("/events");
   revalidatePath(`/events/${input.id}`);
   revalidatePath("/home");
   revalidatePath("/plan");
+  revalidatePath("/nutrition");
   return { ok: true as const, proposalCreated };
 }
 
@@ -2028,6 +2415,171 @@ export async function recordEventResult(input: {
   revalidatePath("/event-admin");
   revalidatePath("/events");
   return { ok: true };
+}
+
+/** Athlete post-event check-in → recovery plan + result analysis. */
+export async function completeEventCheckIn(input: {
+  eventId: string;
+  completed: boolean;
+  completionStatus: "finished" | "dnf" | "dns" | "partial";
+  actualDistanceM?: number | null;
+  finishTimeSeconds?: number | null;
+  avgHeartRate?: number | null;
+  perceivedExertion?: number | null;
+  fatigueLevel?: number | null;
+  muscleSoreness?: number | null;
+  painOrInjury?: boolean;
+  sleepQuality?: number | null;
+  readyToResume?: boolean | null;
+  concerningSymptoms?: string[];
+  conditions?: string;
+  comments?: string;
+}) {
+  const { supabase, user } = await limit("event_checkin", 20, 3600);
+  const { data: event } = await supabase
+    .from("events")
+    .select("id, name, starts_on, ends_on, distance_m, swim_m, bike_m, run_m, goal_time_seconds, priority, discipline, event_type, status, template_slug")
+    .eq("id", input.eventId)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!event) return { ok: false as const, message: "Event not found." };
+
+  const registrationStatus =
+    input.completionStatus === "finished" ? "finished"
+      : input.completionStatus === "dns" ? "dns"
+        : input.completionStatus === "dnf" || input.completionStatus === "partial" ? "dnf"
+          : "finished";
+  const { data: registration, error: registrationError } = await supabase.from("event_registrations").upsert({
+    event_id: input.eventId,
+    user_id: user.id,
+    status: registrationStatus,
+  }, { onConflict: "event_id,user_id" }).select("id").single();
+  if (registrationError || !registration) {
+    return { ok: false as const, message: registrationError?.message ?? "Registration was not saved." };
+  }
+
+  const { analyzeEventResult } = await import("@/services/events/results-analysis");
+  const { planningEventsFromRows } = await import("@/services/events/recalculate");
+  const { buildPostEventRecovery } = await import("@/services/events/recovery");
+  const planning = planningEventsFromRows([{ ...event, status: "active" }], event.starts_on);
+  const subject = planning[0];
+  const performance = subject
+    ? analyzeEventResult(subject, {
+      targetTimeSeconds: event.goal_time_seconds,
+      finishTimeSeconds: input.finishTimeSeconds,
+      actualDistanceM: input.actualDistanceM,
+      expectedDistanceM: event.distance_m == null ? null : Number(event.distance_m),
+      perceivedExertion: input.perceivedExertion,
+      avgHeartRate: input.avgHeartRate,
+      completionStatus: input.completionStatus,
+      conditions: input.conditions,
+    })
+    : null;
+
+  const distance = input.actualDistanceM ?? (event.distance_m == null ? null : Number(event.distance_m));
+  const { data: resultRow, error: resultError } = await supabase.from("event_results").upsert({
+    registration_id: registration.id,
+    finish_time_seconds: input.finishTimeSeconds ?? null,
+    actual_distance_m: distance,
+    pace_sec_per_km: performance?.measured.paceSecPerKm,
+    avg_heart_rate: input.avgHeartRate ?? null,
+    perceived_exertion: input.perceivedExertion ?? null,
+    fatigue_level: input.fatigueLevel ?? null,
+    muscle_soreness: input.muscleSoreness ?? null,
+    pain_or_injury: Boolean(input.painOrInjury),
+    sleep_quality: input.sleepQuality ?? null,
+    ready_to_resume: input.readyToResume ?? null,
+    conditions: input.conditions ?? "",
+    athlete_comments: input.comments ?? "",
+    completion_status: input.completionStatus,
+    analysis: performance ?? {},
+    ai_insight: performance?.summary ?? "",
+    technique_note: "Technique was not scored from this check-in.",
+    splits: [],
+  }, { onConflict: "registration_id" }).select("id").single();
+  if (resultError) return { ok: false as const, message: resultError.message };
+
+  await supabase.from("events").update({
+    status: "completed",
+    updated_at: new Date().toISOString(),
+  }).eq("id", input.eventId).eq("owner_user_id", user.id);
+
+  const recovery = subject
+    ? buildPostEventRecovery(subject, event.ends_on || event.starts_on, {
+      completed: input.completed,
+      completionStatus: input.completionStatus,
+      actualDistanceM: input.actualDistanceM,
+      finishTimeSeconds: input.finishTimeSeconds,
+      difficulty: input.perceivedExertion,
+      fatigueLevel: input.fatigueLevel,
+      muscleSoreness: input.muscleSoreness,
+      painOrInjury: input.painOrInjury,
+      sleepQuality: input.sleepQuality,
+      readyToResume: input.readyToResume,
+      concerningSymptoms: (input.concerningSymptoms ?? []).filter((s): s is "chest_pain" | "fainting" | "severe_pain" | "suspected_injury" | "shortness_of_breath_at_rest" =>
+        ["chest_pain", "fainting", "severe_pain", "suspected_injury", "shortness_of_breath_at_rest"].includes(s)),
+      comments: input.comments,
+    })
+    : null;
+
+  if (recovery) {
+    await supabase.from("event_recovery").upsert({
+      user_id: user.id,
+      event_id: input.eventId,
+      result_id: resultRow?.id ?? null,
+      status: recovery.status,
+      recovery_days: recovery.recoveryDays,
+      start_date: recovery.startDate,
+      end_date: recovery.endDate,
+      restrictions: recovery.restrictions,
+      recommendations: recovery.recommendations,
+      athlete_feedback: {
+        fatigueLevel: input.fatigueLevel,
+        muscleSoreness: input.muscleSoreness,
+        painOrInjury: input.painOrInjury,
+        sleepQuality: input.sleepQuality,
+        readyToResume: input.readyToResume,
+        concerningSymptoms: input.concerningSymptoms ?? [],
+      },
+      medical_guidance: recovery.medicalGuidance,
+      data_origin: "system",
+    }, { onConflict: "user_id,event_id" });
+
+    if (recovery.seekCare) {
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        kind: "recovery",
+        title: "Seek medical guidance",
+        body: recovery.medicalGuidance,
+        href: `/events/${input.eventId}`,
+      });
+    } else {
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        kind: "recovery",
+        title: `Post-event recovery · ${event.name}`,
+        body: `About ${recovery.recoveryDays} easy days. Complete recovery sessions before returning to hard training.`,
+        href: `/events/${input.eventId}`,
+      });
+    }
+  }
+
+  await runEventAwareRecalculation(supabase, user.id, {
+    trigger: "event_complete",
+    eventId: input.eventId,
+    endsOn: event.ends_on || event.starts_on,
+    templateSlug: event.template_slug,
+    createProposal: false,
+  });
+
+  revalidatePath("/events");
+  revalidatePath(`/events/${input.eventId}`);
+  revalidatePath("/home");
+  revalidatePath("/plan");
+  revalidatePath("/recovery");
+  revalidatePath("/nutrition");
+  return { ok: true as const, seekCare: Boolean(recovery?.seekCare), recoveryDays: recovery?.recoveryDays ?? 0 };
 }
 
 function splitConsistency(splits: number[]): { consistency: number | null; insight: string } {
