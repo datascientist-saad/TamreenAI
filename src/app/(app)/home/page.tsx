@@ -59,6 +59,7 @@ export default async function HomePage() {
       events={data.events}
       insight={data.insight}
       conflict={data.conflicts[0] ?? null}
+      recovery={data.recovery}
       whoop={
         data.whoop.connection.status === "connected"
         || data.whoop.connection.status === "error"

@@ -78,7 +78,7 @@ export async function loadHome() {
       .limit(20),
     shell.supabase
       .from("events")
-      .select("id, name, event_type, starts_on, goal_time_seconds, data_origin, priority, status")
+      .select("id, name, event_type, starts_on, goal_time_seconds, data_origin, priority, status, distance_m")
       .eq("owner_user_id", shell.user.id)
       .is("deleted_at", null)
       .gte("starts_on", today)
@@ -119,6 +119,47 @@ export async function loadHome() {
   for (const score of scores.data ?? []) {
     if (!latestScores.has(score.dimension)) latestScores.set(score.dimension, score);
   }
+
+  const eventIds = (events.data ?? []).map((row) => row.id);
+  const [{ data: phases }, { data: activeRecovery }] = await Promise.all([
+    eventIds.length
+      ? shell.supabase
+        .from("event_training_phases")
+        .select("event_id, phase, start_date, end_date")
+        .eq("user_id", shell.user.id)
+        .in("event_id", eventIds)
+        .lte("start_date", today)
+        .gte("end_date", today)
+      : Promise.resolve({ data: [] as Array<{ event_id: string; phase: string; start_date: string; end_date: string }> }),
+    shell.supabase
+      .from("event_recovery")
+      .select("event_id, recovery_days, end_date, medical_guidance, recommendations, status, events(name)")
+      .eq("user_id", shell.user.id)
+      .in("status", ["active", "pending_checkin"])
+      .gte("end_date", today)
+      .order("end_date")
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const phaseByEvent = new Map((phases ?? []).map((row) => [row.event_id, row.phase]));
+  const mappedEvents = (events.data ?? []).map((row) => ({
+    ...row,
+    days: daysUntil(row.starts_on, today),
+    phase: phaseByEvent.get(row.id) ?? null,
+  }));
+  const recoveryEvent = activeRecovery
+    ? {
+      eventId: activeRecovery.event_id,
+      eventName: (Array.isArray(activeRecovery.events) ? activeRecovery.events[0]?.name : (activeRecovery.events as { name?: string } | null)?.name) || "Recent event",
+      recoveryDays: activeRecovery.recovery_days,
+      endDate: activeRecovery.end_date,
+      medicalGuidance: activeRecovery.medical_guidance || undefined,
+      recommendations: Array.isArray(activeRecovery.recommendations)
+        ? activeRecovery.recommendations as Array<{ title: string; detail: string }>
+        : [],
+    }
+    : null;
+
   return {
     ...shell,
     today,
@@ -128,13 +169,14 @@ export async function loadHome() {
     weekEnd,
     readiness: readiness.data,
     scores: [...latestScores.values()],
-    events: (events.data ?? []).map((row) => ({ ...row, days: daysUntil(row.starts_on, today) })),
-    event: events.data?.[0] ? { ...events.data[0], days: daysUntil(events.data[0].starts_on, today) } : null,
+    events: mappedEvents,
+    event: mappedEvents[0] ?? null,
     insight: insight.data,
     conflicts: conflicts.data ?? [],
     loads: loads.data ?? [],
     plan: recommendation.data,
     whoop,
+    recovery: recoveryEvent,
   };
 }
 

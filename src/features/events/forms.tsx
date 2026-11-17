@@ -129,8 +129,8 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
               return;
             }
             setMessage(result.proposalCreated
-              ? "Event updated. Review proposed plan changes on Home or Plan."
-              : "Event updated.");
+              ? "Event updated. Review proposed plan changes on Home before they fully apply."
+              : "Event updated. Event-day blocking is active.");
           } else {
             const result = await createPersonalEvent(payload);
             if (!result.ok) {
@@ -138,7 +138,12 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
               return;
             }
             form.reset();
-            setMessage("Event saved. Rebuild your plan to integrate it into one schedule.");
+            const priorityNote = "priorityRecommended" in result && result.priorityRecommended
+              ? ` Suggested priority: ${result.priorityRecommended}.`
+              : "";
+            setMessage(result.proposalCreated
+              ? `Event saved.${priorityNote} Review proposed training changes on Home. Event day already blocks ordinary workouts.`
+              : `Event saved.${priorityNote} Event day blocks ordinary workouts.`);
           }
           router.refresh();
         } catch (caught) {
@@ -237,13 +242,14 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
       </p>
 
       <label>
-        Priority
+        Priority (A / B / C)
         <select name="priority" defaultValue={initial?.priority ?? "primary"}>
-          <option value="primary">Primary event</option>
-          <option value="secondary">Secondary event</option>
-          <option value="practice">Practice event</option>
+          <option value="primary">A — Primary competition</option>
+          <option value="secondary">B — Secondary competition</option>
+          <option value="practice">C — Training / practice race</option>
         </select>
       </label>
+      <p className="caption">Tamreen recommends a priority from distance, type, and nearby events. You can override it here.</p>
       <TimeFields name="goal" legend="Target finish time" />
       <label>
         Experience level

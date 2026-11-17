@@ -9,7 +9,7 @@ import { requireUser } from "@/server/guard";
 
 export const maxDuration = 60;
 
-const workoutSelect = "id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, workout_exercises(sort_order, set_count, reps, why_text, notes, exercise_library(name, slug, live_supported))";
+const workoutSelect = "id, scheduled_date, sport, title, objective, duration_min, intensity, expected_load, importance, recovery_hours, status, why_text, is_event_session, event_id, structure, workout_exercises(sort_order, set_count, reps, why_text, notes, exercise_library(name, slug, live_supported))";
 
 export default async function PlanPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const { view = "week" } = await searchParams;

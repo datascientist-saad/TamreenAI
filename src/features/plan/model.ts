@@ -23,6 +23,9 @@ export type PlanWorkout = {
   status: string;
   why_text: string;
   exercises: PlanExercise[];
+  is_event_session?: boolean;
+  event_id?: string | null;
+  phase_hint?: "taper" | "deload" | "recovery" | "event" | null;
 };
 
 export type PlanBlock = {
@@ -53,6 +56,9 @@ export function toPlanWorkout(row: {
   recovery_hours: number | null;
   status: string;
   why_text: string | null;
+  is_event_session?: boolean | null;
+  event_id?: string | null;
+  structure?: Record<string, unknown> | null;
   workout_exercises: Array<{
     sort_order: number;
     set_count: number;
@@ -62,6 +68,14 @@ export function toPlanWorkout(row: {
     exercise_library: Library | Library[];
   }> | null;
 }): PlanWorkout {
+  const structure = row.structure && typeof row.structure === "object" ? row.structure : {};
+  const taperScale = typeof structure.taperScale === "number" ? structure.taperScale : null;
+  const isEvent = Boolean(row.is_event_session || structure.isEventSession);
+  let phase_hint: PlanWorkout["phase_hint"] = null;
+  if (isEvent) phase_hint = "event";
+  else if (taperScale != null && taperScale < 0.95) phase_hint = "taper";
+  else if (row.intensity === "recovery" || row.sport === "recovery" || row.sport === "mobility") phase_hint = "recovery";
+
   return {
     id: row.id,
     scheduled_date: row.scheduled_date,
@@ -75,6 +89,9 @@ export function toPlanWorkout(row: {
     recovery_hours: row.recovery_hours ?? 24,
     status: row.status,
     why_text: row.why_text ?? "",
+    is_event_session: isEvent,
+    event_id: row.event_id ?? (typeof structure.eventId === "string" ? structure.eventId : null),
+    phase_hint,
     exercises: (row.workout_exercises ?? [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order)
