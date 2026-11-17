@@ -238,12 +238,12 @@ export function PlanEditor({
                   key={date}
                   id={date}
                   data-day={date}
-                  className={`grid min-h-24 gap-2 rounded-[var(--radius-lg)] p-2.5 ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
+                  className={`grid min-h-24 min-w-0 gap-2 rounded-[var(--radius-lg)] p-2.5 ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
                 >
                   <h2 className="px-1 text-sm font-bold">{dayHeading(date, today)}</h2>
                   {rows.length === 0 ? <p className="px-1 caption">Rest — drop a workout here</p> : null}
                   {rows.map((workout) => (
-                    <article key={workout.id} className="app-card p-3" data-day={date}>
+                    <article key={workout.id} className="app-card min-w-0 overflow-hidden p-3" data-day={date}>
                       <div className="flex items-start gap-2">
                         {workout.status === "completed" ? <span className="w-9" /> : (
                           <button
@@ -298,18 +298,21 @@ export function PlanEditor({
                         ) : null}
                       </div>
                       {workout.status === "completed" ? null : (
-                        <label className="mt-2 text-xs">
-                          Move to
-                          <input
-                            key={`${workout.id}-${workout.scheduled_date}`}
-                            type="date"
-                            defaultValue={workout.scheduled_date}
-                            disabled={busyId === workout.id}
-                            onBlur={(event) => {
-                              const next = event.target.value;
-                              if (next && next !== workout.scheduled_date) void relocate(workout.id, next);
-                            }}
-                          />
+                        <label className="mt-2 grid min-w-0 w-full gap-1.5 overflow-hidden text-xs">
+                          <span>Move to</span>
+                          <span className="block min-w-0 overflow-hidden">
+                            <input
+                              key={`${workout.id}-${workout.scheduled_date}`}
+                              type="date"
+                              className="block w-full min-w-0 max-w-full"
+                              defaultValue={workout.scheduled_date}
+                              disabled={busyId === workout.id}
+                              onBlur={(event) => {
+                                const next = event.target.value;
+                                if (next && next !== workout.scheduled_date) void relocate(workout.id, next);
+                              }}
+                            />
+                          </span>
                         </label>
                       )}
                       <div className="mt-2">

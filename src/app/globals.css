@@ -157,6 +157,8 @@ button, a, input, select, textarea { font: inherit; }
 
 input, select, textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   background: var(--elevated);
   color: var(--ink);
@@ -164,6 +166,27 @@ input, select, textarea {
   padding: 0.75rem 0.875rem;
   min-height: 44px;
   transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* Native date/time controls have a large intrinsic min-width on mobile. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit,
+input[type="week"]::-webkit-datetime-edit {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 input:focus-visible, select:focus-visible, textarea:focus-visible {
