@@ -193,72 +193,79 @@ export function LiveSession({
               : "Tracking";
 
   return (
-    <div className="grid gap-4">
-      <section className="overflow-hidden rounded-3xl bg-black text-white">
-        <div className="relative aspect-[3/4] bg-maroon-deep md:aspect-video">
-          <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
-            <video ref={videoRef} className="h-full w-full object-contain" muted playsInline />
-            <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+    <div className="grid min-h-[100dvh] gap-0 bg-black text-white md:min-h-0 md:gap-4 md:bg-transparent md:text-ink">
+      <section className="relative min-h-[100dvh] overflow-hidden bg-black text-white md:min-h-0 md:rounded-[var(--radius-lg)] md:aspect-video">
+        <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
+          <video ref={videoRef} className="h-full w-full object-cover md:object-contain" muted playsInline />
+          <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+        </div>
+
+        <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 bg-gradient-to-b from-black/70 to-transparent p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-white/70">{status}</p>
+            <h1 className="truncate text-lg font-bold">{prescription?.name ?? exercise.name}</h1>
+            {prescription ? (
+              <p className="text-xs text-white/70">{prescription.sets} × {prescription.reps}</p>
+            ) : null}
           </div>
-          {camera !== "live" ? (
-            <div className="absolute inset-0 grid place-items-center p-6 text-center">
-              <div>
-                <p className="eyebrow text-gold">Camera</p>
-                <h2 className="mt-2 text-2xl font-bold">
-                  {camera === "starting" ? "Opening the camera" : camera === "denied" ? "Camera permission denied" : "This device has no camera"}
-                </h2>
-                <p className="mt-2 text-sm text-white/70">Manual reps can still be saved. Form is not scored without a visible body.</p>
-              </div>
+          <button className="btn btn-on-dark btn-sm" type="button" onClick={() => setPaused((value) => !value)}>
+            {paused ? "Resume" : "Pause"}
+          </button>
+        </div>
+
+        {camera !== "live" ? (
+          <div className="absolute inset-0 grid place-items-center bg-black/80 p-6 text-center">
+            <div>
+              <h2 className="text-xl font-bold">
+                {camera === "starting" ? "Opening camera…" : camera === "denied" ? "Camera permission denied" : "No camera on this device"}
+              </h2>
+              <p className="mt-2 text-sm text-white/70">You can still count reps manually. Form is not scored without a visible body.</p>
             </div>
-          ) : (
-            <div className="absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1 text-xs font-bold">{status}</div>
-          )}
-          <div className="absolute inset-x-0 bottom-0 grid gap-2 bg-black/70 p-3">
-            <p className="text-sm font-semibold">{cue}</p>
-            <div className="grid grid-cols-4 gap-2 text-center text-xs">
-              <Stat label="Rep" value={String(setReps)} />
-              <Stat label="Set" value={String(setCount)} />
-              <Stat label="Time" value={`${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`} />
-              <Stat label="Form" value={formScore == null ? "—" : String(formScore)} />
-            </div>
-            {formScore != null ? <p className="text-center text-[11px] text-white/70">2D camera estimate, not a lab measurement.</p> : null}
+          </div>
+        ) : null}
+
+        <div className="absolute inset-x-0 bottom-0 grid gap-3 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <p className="text-center text-sm font-semibold text-white/95">{cue}</p>
+          <div className="mx-auto grid w-full max-w-md grid-cols-4 gap-2 text-center">
+            <Stat label="Rep" value={String(setReps)} />
+            <Stat label="Set" value={String(setCount)} />
+            <Stat label="Time" value={`${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, "0")}`} />
+            <Stat label="Form" value={formScore == null ? "—" : String(formScore)} />
+          </div>
+          {formScore != null ? <p className="text-center text-[11px] text-white/55">2D camera estimate — not a lab measurement</p> : null}
+          <div className="mx-auto grid w-full max-w-md grid-cols-3 gap-2">
+            <button className="btn btn-on-dark" type="button" onClick={() => bump(-1)}>Undo</button>
+            <button className="btn btn-primary" type="button" onClick={() => bump(1)}>Count</button>
+            <button className="btn btn-on-dark" type="button" onClick={nextSet}>Next set</button>
           </div>
         </div>
       </section>
-      <article className="app-card p-4">
-        <p className="eyebrow">{prescription ? "Today's movement" : exercise.name}</p>
-        <h2 className="mt-1 text-xl font-extrabold">{prescription?.name ?? exercise.name}</h2>
-        {prescription ? <p className="text-sm text-muted">{prescription.workoutTitle} · {prescription.sets} × {prescription.reps}</p> : null}
-        <p className="mt-2">{exercise.setup}</p>
-        <p className="mt-3 text-sm font-bold">Coaching cues</p>
-        <ul className="mt-2 grid gap-1 text-sm text-muted">
-          {exercise.cues.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-        <p className="mt-3 text-sm">The pose model runs on this device. A form number appears only after your body stays visible. It is a 2D camera estimate, not a lab measurement.</p>
-      </article>
-      <div className="grid grid-cols-2 gap-2">
-        <button className="btn btn-primary" type="button" onClick={() => bump(1)}>Count rep</button>
-        <button className="btn btn-ghost" type="button" onClick={() => bump(-1)}>Undo rep</button>
-        <button className="btn btn-ghost" type="button" onClick={nextSet}>Next set</button>
-        <button className="btn btn-ghost" type="button" onClick={() => setPaused((value) => !value)}>{paused ? "Resume" : "Pause"}</button>
+
+      <div className="grid gap-3 bg-paper px-4 py-4 text-ink md:px-0">
+        <details className="app-card p-4">
+          <summary className="cursor-pointer font-semibold">Setup & cues</summary>
+          <p className="mt-2 text-sm">{exercise.setup}</p>
+          <ul className="mt-2 grid gap-1 text-sm text-muted">
+            {exercise.cues.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </details>
+        <form action={finish} className="app-card grid gap-3 p-4">
+          {slug === "squat" && formScore == null ? (
+            <label className="text-sm">
+              <span className="flex items-center gap-2 font-bold">
+                <input className="h-5 w-5" name="placeholder" type="checkbox" />
+                Save the labeled squat example
+              </span>
+              <span className="mt-1 block text-muted">
+                Example only: overall {PLACEHOLDER_FORM.overall}. Not a measurement of this session.
+              </span>
+            </label>
+          ) : null}
+          <label>Notes<textarea name="notes" /></label>
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          <button className="btn btn-primary" disabled={saving} type="submit">{saving ? "Saving…" : "Finish session"}</button>
+        </form>
       </div>
-      <form action={finish} className="app-card grid gap-3 p-4">
-        {slug === "squat" && formScore == null ? (
-          <label className="text-sm">
-            <span className="flex items-center gap-2 font-bold">
-              <input className="h-5 w-5" name="placeholder" type="checkbox" />
-              Save the labeled squat example
-            </span>
-            <span className="mt-1 block text-muted">
-              Example only: overall {PLACEHOLDER_FORM.overall}. These numbers are not a measurement of this session.
-            </span>
-          </label>
-        ) : null}
-        {formScore != null ? <p className="text-sm">A camera score is ready, so the labeled example will not be saved.</p> : null}
-        <label>Notes<textarea name="notes" /></label>
-        {error ? <p className="text-sm text-live">{error}</p> : null}
-        <button className="btn btn-primary" disabled={saving} type="submit">Finish</button>
-      </form>
     </div>
   );
 }

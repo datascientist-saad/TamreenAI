@@ -17,11 +17,13 @@ export function SetupScreen() {
 
 export function EmptyState({ title, body, href, action }: { title: string; body: string; href?: string; action?: string }) {
   return (
-    <div className="app-card p-6">
-      <h2 className="text-xl font-bold">{title}</h2>
-      <p className="mt-2 text-muted">{body}</p>
+    <div className="app-card grid gap-3 p-5">
+      <div>
+        <h2 className="section-title">{title}</h2>
+        <p className="mt-1 text-sm text-muted">{body}</p>
+      </div>
       {href && action ? (
-        <Link className="btn btn-primary mt-4" href={href}>{action}</Link>
+        <Link className="btn btn-primary w-full sm:w-auto" href={href}>{action}</Link>
       ) : null}
     </div>
   );

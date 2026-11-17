@@ -183,21 +183,27 @@ export function PlanEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-start gap-2 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur md:top-0 md:z-20">
-        {lockView ? null : views.map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={`btn min-h-10 capitalize ${view === item ? "btn-primary" : "btn-ghost"}`}
-            onClick={() => setView(item)}
-          >
-            {item}
-          </button>
-        ))}
-        {showRebuild ? <RebuildPlanButton /> : null}
-        <OptimizeButton onResult={applyOptimized} />
+      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-paper/95 px-4 py-2.5 backdrop-blur md:top-0 md:z-20">
+        {lockView ? null : (
+          <div className="flex gap-1 overflow-x-auto">
+            {views.map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={`btn btn-sm capitalize ${view === item ? "btn-primary" : "btn-ghost"}`}
+                onClick={() => setView(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="ml-auto flex flex-wrap gap-2">
+          {showRebuild ? <RebuildPlanButton /> : null}
+          <OptimizeButton onResult={applyOptimized} />
+        </div>
       </div>
-      <p className="text-sm text-muted">Drag a workout by the handle, or pick a date. The day updates immediately. Skip means you chose not to do it. Missed means it passed and was not done.</p>
+      <p className="caption">Drag the handle to reschedule. Skip = chose not to train. Missed = it passed undone.</p>
       {error ? <p className="text-sm text-live" aria-live="polite">{error}</p> : null}
       {conflict ? (
         <div className="rounded-2xl border border-live/40 bg-live/10 p-4 text-sm">
@@ -232,59 +238,67 @@ export function PlanEditor({
                   key={date}
                   id={date}
                   data-day={date}
-                  className={`grid min-h-28 gap-3 rounded-3xl p-3 ${date === today ? "bg-maroon/10 ring-2 ring-maroon" : "bg-card/40"} ${active ? "ring-2 ring-gold" : ""}`}
+                  className={`grid min-h-24 gap-2 rounded-[var(--radius-lg)] p-2.5 ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
                 >
-                  <h2 className="px-1 text-lg font-extrabold">{dayHeading(date, today)}</h2>
-                  {rows.length === 0 ? <p className="px-1 text-sm text-muted">Rest. Drop a workout here.</p> : null}
+                  <h2 className="px-1 text-sm font-bold">{dayHeading(date, today)}</h2>
+                  {rows.length === 0 ? <p className="px-1 caption">Rest — drop a workout here</p> : null}
                   {rows.map((workout) => (
-                    <article key={workout.id} className="app-card p-4" data-day={date}>
+                    <article key={workout.id} className="app-card p-3" data-day={date}>
                       <div className="flex items-start gap-2">
-                        {workout.status === "completed" ? <span className="w-10" /> : (
+                        {workout.status === "completed" ? <span className="w-9" /> : (
                           <button
                             type="button"
-                            className="grid h-11 w-11 shrink-0 cursor-grab touch-none place-items-center rounded-xl border border-line text-muted active:cursor-grabbing"
+                            className="grid h-9 w-9 shrink-0 cursor-grab touch-none place-items-center rounded-[var(--radius-sm)] border border-line text-muted active:cursor-grabbing"
                             aria-label={`Drag ${workout.title} to another day`}
                             onPointerDown={(event) => beginDrag(event, workout)}
                             onPointerMove={trackDrag}
                             onPointerUp={endDrag}
                             onPointerCancel={endDrag}
                           >
-                            <GripVertical size={18} />
+                            <GripVertical size={16} />
                           </button>
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
-                            <span className={`chip ${workout.status === "missed" ? "bg-live/15 text-live" : workout.status === "skipped" ? "bg-gold/30 text-ink" : "bg-paper text-muted"}`}>
-                              {statusLabel(workout.status)}
-                            </span>
+                            <span className={`chip status-${workout.status}`}>{statusLabel(workout.status)}</span>
                           </div>
-                          <h3 className="mt-2 text-xl font-bold">{workout.title}</h3>
-                          <p className="metric text-sm text-muted">{formatDuration(workout.duration_min)} · {intensityLabel(workout.intensity)}</p>
+                          <h3 className="mt-1.5 text-base font-bold leading-snug">{workout.title}</h3>
+                          <p className="metric caption mt-0.5">{formatDuration(workout.duration_min)} · {intensityLabel(workout.intensity)}</p>
                         </div>
                       </div>
-                      {workout.objective ? <p className="mt-2 text-sm">{workout.objective}</p> : null}
-                      {workout.why_text ? <p className="mt-2 text-sm text-muted">{workout.why_text}</p> : null}
                       {workout.exercises.length ? (
-                        <ul className="mt-3 grid gap-2">
-                          {workout.exercises.map((exercise) => (
-                            <li key={`${exercise.name}-${exercise.reps}`} className="rounded-xl bg-paper px-3 py-2 text-sm">
-                              <span className="font-bold">{exercise.name}</span> · {exercise.sets} × {exercise.reps}
-                              {exercise.liveSlug && date === today ? (
-                                <Link className="mt-1 block font-bold text-maroon" href={`/live/${exercise.liveSlug}?workout=${workout.id}`}>Open camera</Link>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-sm font-semibold text-maroon">Exercises ({workout.exercises.length})</summary>
+                          <ul className="mt-2 grid gap-1.5">
+                            {workout.exercises.map((exercise) => (
+                              <li key={`${exercise.name}-${exercise.reps}`} className="rounded-[var(--radius-sm)] bg-elevated px-2.5 py-1.5 text-sm">
+                                <span className="font-semibold">{exercise.name}</span> · {exercise.sets} × {exercise.reps}
+                                {exercise.liveSlug && date === today ? (
+                                  <Link className="mt-0.5 block font-bold text-maroon" href={`/live/${exercise.liveSlug}?workout=${workout.id}`}>Open camera</Link>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
                       ) : null}
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Link className="btn btn-primary" href={`/train/${workout.id}`}>Start</Link>
+                      {(workout.objective || workout.why_text) ? (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-sm font-semibold text-muted">Why this workout</summary>
+                          <div className="mt-1.5 grid gap-1 text-sm text-muted">
+                            {workout.objective ? <p>{workout.objective}</p> : null}
+                            {workout.why_text ? <p>{workout.why_text}</p> : null}
+                          </div>
+                        </details>
+                      ) : null}
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        <Link className="btn btn-primary btn-sm" href={`/train/${workout.id}`}>Open</Link>
                         {date === today && workout.exercises.some((exercise) => exercise.liveSlug) ? (
-                          <Link className="btn btn-ghost" href={`/live?workout=${workout.id}`}>Live camera</Link>
+                          <Link className="btn btn-ghost btn-sm" href={`/live?workout=${workout.id}`}>Camera</Link>
                         ) : null}
                       </div>
                       {workout.status === "completed" ? null : (
-                        <label className="mt-3 text-sm">
+                        <label className="mt-2 text-xs">
                           Move to
                           <input
                             key={`${workout.id}-${workout.scheduled_date}`}
@@ -298,7 +312,7 @@ export function PlanEditor({
                           />
                         </label>
                       )}
-                      <div className="mt-3">
+                      <div className="mt-2">
                         <StatusChoices status={workout.status} busy={busyId === workout.id} onChoose={(next) => void choose(workout.id, next)} />
                       </div>
                     </article>
