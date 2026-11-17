@@ -183,7 +183,7 @@ export function PlanEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="sticky top-16 z-20 -mx-4 flex flex-wrap items-start gap-2 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur md:top-0">
+      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-start gap-2 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur md:top-0 md:z-20">
         {lockView ? null : views.map((item) => (
           <button
             key={item}

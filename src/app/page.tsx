@@ -9,7 +9,7 @@ const sections = [
   ["Live training", "The camera runs an on-device pose model. Scores appear only when the body stays visible. They are 2D camera estimates, not a lab measurement. Placeholders stay labeled as placeholders."],
   ["AI coach", "Ask why a session changed. Tamreen shows the factors and waits for you to accept a major change."],
   ["Performance", "Scores appear only when the inputs exist, and each one says how it was calculated."],
-  ["Events", "A race result can become a profile, a plan, and the next block of training."],
+  ["Events", "Train for more than one race at once. Primary, secondary, and practice events share one integrated schedule."],
   ["For gyms", "Cameras stay tied to QR, assignment, or a signed-in device. Tamreen does not use facial recognition."],
   ["For coaches", "A coach sees an athlete only after that athlete accepts the link."],
 ];
@@ -17,44 +17,47 @@ const sections = [
 export default function LandingPage() {
   return (
     <div className="min-w-0 bg-paper text-ink">
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-maroon-deep/95 text-white backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-line bg-card/95 text-ink backdrop-blur safe-top">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
             <Wordmark className="shrink-0 text-sm sm:text-base" />
             <div className="shrink-0 sm:hidden">
-              <ThemeToggle persist={false} onDark compact />
+              <ThemeToggle />
             </div>
           </div>
           <nav className="flex min-w-0 items-center gap-2" aria-label="Account">
             <div className="hidden sm:block">
-              <ThemeToggle persist={false} onDark />
+              <ThemeToggle />
             </div>
-            <Link className="btn btn-ghost flex-1 border-white/20 text-white sm:flex-none" href="/login">Sign in</Link>
+            <Link className="btn btn-ghost flex-1 sm:flex-none" href="/login">Sign in</Link>
             <Link className="btn btn-primary flex-1 sm:flex-none" href="/signup">Start training</Link>
           </nav>
         </div>
       </header>
-      <section className="bg-gradient-to-b from-[#3d0e1f] to-[#4a1228] px-4 pb-16 pt-10 text-center text-white sm:px-6 sm:pb-24 sm:pt-16">
-        <div className="mx-auto w-fit overflow-hidden rounded-3xl shadow-lg">
+
+      <section className="relative overflow-hidden border-b border-line bg-gradient-to-br from-maroon-deep via-[#5a1630] to-maroon px-4 pb-16 pt-10 text-center text-white sm:px-6 sm:pb-24 sm:pt-16">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" aria-hidden />
+        <div className="relative mx-auto w-fit overflow-hidden rounded-3xl shadow-lg ring-1 ring-white/20">
           <Mark size={112} />
         </div>
-        <p className="eyebrow mt-6 text-gold">Plan · Train · Adapt</p>
-        <h1 className="mx-auto mt-4 max-w-4xl text-balance text-4xl font-extrabold tracking-tight sm:text-5xl md:text-7xl">TAMREEN AI</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-balance text-lg font-semibold sm:text-2xl">One athlete. Multiple sports. One intelligent training system.</p>
-        <p className="mx-auto mt-4 max-w-2xl text-sm text-white/75 sm:text-base">
+        <p className="eyebrow relative mt-6 !text-gold">Plan · Train · Adapt</p>
+        <h1 className="relative mx-auto mt-4 max-w-4xl text-balance text-4xl font-extrabold tracking-tight sm:text-5xl md:text-7xl">TAMREEN AI</h1>
+        <p className="relative mx-auto mt-4 max-w-2xl text-balance text-lg font-semibold text-white sm:text-2xl">One athlete. Multiple sports. One intelligent training system.</p>
+        <p className="relative mx-auto mt-4 max-w-2xl text-sm text-white/80 sm:text-base">
           Tamreen combines strength, running, cycling and swimming into one adaptive training system that understands how every workout affects your performance.
         </p>
-        <div className="mx-auto mt-8 flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
+        <div className="relative mx-auto mt-8 flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:justify-center">
           <Link className="btn btn-primary" href="/signup">Start training</Link>
-          <a className="btn btn-ghost border-white/30 text-white" href="#how">See how it works</a>
+          <a className="btn btn-on-dark" href="#how">See how it works</a>
         </div>
-        <div className="mx-auto mt-8 grid max-w-3xl gap-4 rounded-3xl border border-gold/30 bg-white/5 p-4 text-left sm:mt-10 sm:p-6 md:grid-cols-3">
+        <div className="relative mx-auto mt-8 grid max-w-3xl gap-4 rounded-3xl border border-gold/30 bg-white/10 p-4 text-left backdrop-blur-sm sm:mt-10 sm:p-6 md:grid-cols-3">
           <Metric value="70.3" label="One event, every sport" />
           <Metric value="1" label="Performance model" />
           <Metric value="Why" label="Every change is explained" />
         </div>
       </section>
-      <section id="how" className="mx-auto grid max-w-6xl scroll-mt-36 gap-3 px-4 py-12 sm:scroll-mt-24 sm:gap-4 sm:px-6 sm:py-20 md:grid-cols-3">
+
+      <section id="how" className="mx-auto grid max-w-6xl scroll-mt-28 gap-3 px-4 py-12 sm:scroll-mt-24 sm:gap-4 sm:px-6 sm:py-20 md:grid-cols-3">
         {sections.map(([title, body]) => (
           <article key={title} className="app-card min-w-0 p-4 sm:p-6">
             <h2 className="text-xl font-bold text-maroon">{title}</h2>
@@ -62,16 +65,22 @@ export default function LandingPage() {
           </article>
         ))}
       </section>
+
       <section className="mx-auto max-w-3xl px-4 pb-12 sm:px-6 sm:pb-20">
         <p className="eyebrow">Illustrative examples, not customer quotes</p>
         <blockquote className="app-card mt-4 p-4 text-base sm:p-6 sm:text-lg">
           “These lines show the kind of explanation Tamreen is built to give. They are product examples, not testimonials from customers.”
         </blockquote>
       </section>
-      <section className="bg-maroon px-4 py-12 text-center text-white sm:px-6 sm:py-16">
+
+      <section className="border-t border-line bg-maroon px-4 py-12 text-center text-white sm:px-6 sm:py-16">
         <h2 className="text-balance text-3xl font-extrabold sm:text-4xl">Train the whole athlete.</h2>
         <Link className="btn btn-gold mt-6" href="/signup">Start training</Link>
       </section>
+
+      <footer className="border-t border-line bg-card px-4 py-8 text-center text-sm text-muted sm:px-6">
+        <p>© {new Date().getFullYear()} Tamreen AI. Hybrid athlete training.</p>
+      </footer>
     </div>
   );
 }
@@ -79,8 +88,8 @@ export default function LandingPage() {
 function Metric({ value, label }: { value: string; label: string }) {
   return (
     <div>
-      <div className="metric text-3xl font-bold">{value}</div>
-      <div className="text-sm text-white/70">{label}</div>
+      <div className="metric text-3xl font-bold text-white">{value}</div>
+      <div className="text-sm text-white/75">{label}</div>
     </div>
   );
 }

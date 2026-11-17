@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TimeFields } from "@/components/time-fields";
 import { clockFromParts, parsePaceList } from "@/lib/utils";
+import { PostWorkoutFeedback, feedbackFromForm } from "@/features/training/post-workout-feedback";
 import { logRide, logRun, logSwim } from "@/server/actions";
 
 function useSave() {
@@ -59,6 +60,7 @@ export function RunForm({ workoutId, title, plannedType }: { workoutId: string |
       return;
     }
     try {
+      const feedback = feedbackFromForm(formData);
       const result = await logRun({
         workoutId,
         title: String(formData.get("title") || title),
@@ -71,8 +73,12 @@ export function RunForm({ workoutId, title, plannedType }: { workoutId: string |
         cadence: numberOrNull(formData.get("cadence")),
         elevationM: numberOrNull(formData.get("elevationM")),
         splits: splits.seconds,
-        rpe: Number(formData.get("rpe") || 5),
+        rpe: Number(formData.get("rpe") || feedback.difficulty || 5),
         notes: String(formData.get("notes") || ""),
+        completedAsPlanned: feedback.completedAsPlanned,
+        fatigueAfter: feedback.fatigueAfter,
+        painReported: feedback.painReported,
+        athleteFeedback: feedback.athleteFeedback,
       });
       router.push(`/runs/${result.id}`);
     } catch (caught) {
@@ -98,8 +104,9 @@ export function RunForm({ workoutId, title, plannedType }: { workoutId: string |
       <label>Splits, minutes:seconds per km<input name="splits" placeholder="5:30, 5:28, 5:35" /></label>
       <label>RPE<input name="rpe" defaultValue="5" inputMode="decimal" /></label>
       <label>Notes<textarea name="notes" /></label>
-      {state.error ? <p className="text-sm text-live">{state.error}</p> : null}
-      <button className="btn btn-primary" disabled={state.pending} type="submit">Save run</button>
+      <PostWorkoutFeedback />
+      {state.error ? <p className="text-sm text-live" role="alert">{state.error}</p> : null}
+      <button className="btn btn-primary" disabled={state.pending} aria-busy={state.pending} type="submit">{state.pending ? "Saving…" : "Save run"}</button>
     </form>
   );
 }
@@ -117,6 +124,7 @@ export function RideForm({ workoutId, title }: { workoutId: string | null; title
       return;
     }
     try {
+      const feedback = feedbackFromForm(formData);
       await logRide({
         workoutId,
         title: String(formData.get("title") || title),
@@ -129,8 +137,14 @@ export function RideForm({ workoutId, title }: { workoutId: string | null; title
         cadence: numberOrNull(formData.get("cadence")),
         avgHr: numberOrNull(formData.get("avgHr")),
         elevationM: numberOrNull(formData.get("elevationM")),
-        rpe: Number(formData.get("rpe") || 5),
-        notes: String(formData.get("notes") || ""),
+        rpe: Number(formData.get("rpe") || feedback.difficulty || 5),
+        notes: [
+          String(formData.get("notes") || ""),
+          feedback.athleteFeedback ? `Feedback: ${feedback.athleteFeedback}` : "",
+          feedback.painReported ? "Pain or discomfort reported after the session." : "",
+          `Completed as planned: ${feedback.completedAsPlanned ? "yes" : "no"}`,
+          feedback.fatigueAfter != null ? `Fatigue after: ${feedback.fatigueAfter}/5` : "",
+        ].filter(Boolean).join("\n"),
       });
       router.push("/analytics?metric=cycling");
       router.refresh();
@@ -157,8 +171,9 @@ export function RideForm({ workoutId, title }: { workoutId: string | null; title
       <label>Elevation (m)<input name="elevationM" inputMode="decimal" /></label>
       <label>RPE<input name="rpe" defaultValue="5" /></label>
       <label>Notes<textarea name="notes" /></label>
-      {state.error ? <p className="text-sm text-live">{state.error}</p> : null}
-      <button className="btn btn-primary" disabled={state.pending} type="submit">Save ride</button>
+      <PostWorkoutFeedback />
+      {state.error ? <p className="text-sm text-live" role="alert">{state.error}</p> : null}
+      <button className="btn btn-primary" disabled={state.pending} aria-busy={state.pending} type="submit">{state.pending ? "Saving…" : "Save ride"}</button>
     </form>
   );
 }
@@ -176,6 +191,7 @@ export function SwimForm({ workoutId, title }: { workoutId: string | null; title
       return;
     }
     try {
+      const feedback = feedbackFromForm(formData);
       await logSwim({
         workoutId,
         title: String(formData.get("title") || title),
@@ -186,8 +202,14 @@ export function SwimForm({ workoutId, title }: { workoutId: string | null; title
         strokeRate: numberOrNull(formData.get("strokeRate")),
         strokeCount: numberOrNull(formData.get("strokeCount")),
         swolf: numberOrNull(formData.get("swolf")),
-        rpe: Number(formData.get("rpe") || 5),
-        notes: String(formData.get("notes") || ""),
+        rpe: Number(formData.get("rpe") || feedback.difficulty || 5),
+        notes: [
+          String(formData.get("notes") || ""),
+          feedback.athleteFeedback ? `Feedback: ${feedback.athleteFeedback}` : "",
+          feedback.painReported ? "Pain or discomfort reported after the session." : "",
+          `Completed as planned: ${feedback.completedAsPlanned ? "yes" : "no"}`,
+          feedback.fatigueAfter != null ? `Fatigue after: ${feedback.fatigueAfter}/5` : "",
+        ].filter(Boolean).join("\n"),
       });
       router.push("/analytics?metric=swimming");
       router.refresh();
@@ -212,8 +234,9 @@ export function SwimForm({ workoutId, title }: { workoutId: string | null; title
       <label>SWOLF<input name="swolf" inputMode="decimal" /></label>
       <label>RPE<input name="rpe" defaultValue="5" /></label>
       <label>Notes<textarea name="notes" /></label>
-      {state.error ? <p className="text-sm text-live">{state.error}</p> : null}
-      <button className="btn btn-primary" disabled={state.pending} type="submit">Save swim</button>
+      <PostWorkoutFeedback />
+      {state.error ? <p className="text-sm text-live" role="alert">{state.error}</p> : null}
+      <button className="btn btn-primary" disabled={state.pending} aria-busy={state.pending} type="submit">{state.pending ? "Saving…" : "Save swim"}</button>
     </form>
   );
 }

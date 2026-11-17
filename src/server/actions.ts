@@ -355,13 +355,19 @@ async function contextFor(userId: string, supabase: Awaited<ReturnType<typeof re
 }
 
 async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]): Promise<{ ctx: AthleteContext; selections: StoredSelections }> {
-  const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: event }] = await Promise.all([
+  const [{ data: profile }, { data: athlete }, { data: sports }, { data: goals }, { data: injuries }, { data: eventRows }] = await Promise.all([
     supabase.from("profiles").select("sex").eq("id", userId).single(),
     supabase.from("athlete_profiles").select("*").eq("user_id", userId).single(),
     supabase.from("athlete_sports").select("sports(slug)").eq("user_id", userId),
     supabase.from("athlete_goals").select("is_primary, custom_label, goals(slug)").eq("user_id", userId),
     supabase.from("injuries").select("body_area, exercises_to_avoid, red_flag, status").eq("user_id", userId),
-    supabase.from("events").select("name, starts_on, distance_m, goal_time_seconds").eq("owner_user_id", userId).is("deleted_at", null).order("starts_on").limit(1).maybeSingle(),
+    supabase
+      .from("events")
+      .select("id, name, starts_on, distance_m, swim_m, bike_m, run_m, goal_time_seconds, priority, status, discipline, event_type, course")
+      .eq("owner_user_id", userId)
+      .is("deleted_at", null)
+      .order("starts_on")
+      .limit(12),
   ]);
   const sportSlugs = (sports ?? []).flatMap((row) => {
     const joined = row.sports as { slug?: string } | { slug?: string }[] | null;
@@ -380,6 +386,9 @@ async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<
   const avoidExercises = current.flatMap((injury) => injury.exercises_to_avoid ?? []);
   const injuryAreas = current.map((injury) => injury.body_area);
   const redFlag = current.some((injury) => injury.red_flag);
+  const { pickAnchorEvent, toPlanningEvents } = await import("@/services/events/multi-event");
+  const planningEvents = toPlanningEvents(eventRows ?? [], today);
+  const anchor = pickAnchorEvent(planningEvents);
   const ctx: AthleteContext = {
     startDate: today,
     sports: sportSlugs,
@@ -392,8 +401,9 @@ async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<
     gymAccess: athlete?.gym_access ?? true,
     poolAccess: athlete?.pool_access ?? false,
     bikeAccess: athlete?.bike_access ?? false,
-    eventDate: event?.starts_on ?? null,
-    eventName: event?.name ?? null,
+    eventDate: anchor?.startsOn ?? null,
+    eventName: anchor?.name ?? null,
+    events: planningEvents,
     avoidExercises,
     currentInjuryAreas: injuryAreas,
     redFlag,
@@ -424,8 +434,19 @@ async function loadPlanningContext(userId: string, supabase: Awaited<ReturnType<
     bikeAccess: ctx.bikeAccess,
     eventName: ctx.eventName,
     eventDate: ctx.eventDate,
-    eventDistanceM: finiteNumber(event?.distance_m),
-    goalTimeSeconds: finiteNumber(event?.goal_time_seconds),
+    eventDistanceM: finiteNumber(anchor?.distanceM),
+    goalTimeSeconds: finiteNumber(anchor?.goalTimeSeconds),
+    events: planningEvents.map((event) => ({
+      id: event.id,
+      name: event.name,
+      startsOn: event.startsOn,
+      priority: event.priority,
+      discipline: event.discipline,
+      distanceM: event.distanceM,
+      swimM: event.swimM,
+      bikeM: event.bikeM,
+      runM: event.runM,
+    })),
     avoidExercises,
     injuryAreas,
     redFlag,
@@ -583,6 +604,26 @@ async function writePlan(supabase: Database, userId: string, options: { status?:
     const { error: exerciseError } = await supabase.from("workout_exercises").insert(exerciseRows);
     if (exerciseError) return { ok: false as const, message: exerciseError.message };
   }
+  const eventLinks = sessions.flatMap((session, index) => {
+    const workoutId = byKey.get(index);
+    if (!workoutId) return [];
+    const ids = Array.isArray((session.structure as { supportsEventIds?: unknown }).supportsEventIds)
+      ? ((session.structure as { supportsEventIds: string[] }).supportsEventIds)
+      : [];
+    return ids.map((eventId, order) => ({
+      workout_id: workoutId,
+      event_id: eventId,
+      user_id: userId,
+      contribution: order === 0 ? "primary" : "shared",
+      rationale: Array.isArray((session.structure as { supportsEventNames?: string[] }).supportsEventNames)
+        ? `Supports ${(session.structure as { supportsEventNames: string[] }).supportsEventNames.join(", ")}`
+        : "Shared multi-event stimulus",
+    }));
+  });
+  if (eventLinks.length) {
+    const { error: linkError } = await supabase.from("session_event_links").insert(eventLinks);
+    if (linkError) console.error("session_event_links", linkError.message);
+  }
 
   const conflicts = findConflicts(plan.sessions);
   await Promise.all([
@@ -637,15 +678,32 @@ export async function generatePlan(input: { multipleSessionsPerDay: boolean }) {
 
 export async function respondToRecommendation(id: string, accept: boolean) {
   const { supabase, user } = await limit("recommendation", 30, 3600);
-  const { data: row } = await supabase.from("ai_recommendations").select("id, proposed_changes, status").eq("id", id).eq("user_id", user.id).single();
+  const { data: row } = await supabase.from("ai_recommendations").select("id, proposed_changes, status, kind").eq("id", id).eq("user_id", user.id).single();
   if (!row || row.status !== "pending") throw new Error("That proposal is no longer pending.");
   if (!accept) {
     await supabase.from("ai_recommendations").update({ status: "rejected" }).eq("id", id);
     revalidatePath("/home");
     return { ok: true };
   }
+  if (row.kind === "event_edit") {
+    const written = await writePlan(supabase, user.id, { status: "active", archiveActive: true });
+    if (!written.ok) throw new Error(written.message);
+    await supabase.from("ai_recommendations").update({ status: "accepted" }).eq("id", id);
+    await supabase.from("notifications").insert({
+      user_id: user.id,
+      kind: "plan_adjustment",
+      title: "Multi-event plan rebuilt",
+      body: "Future sessions were rebuilt around your updated events. Completed workouts stayed unchanged.",
+      href: "/plan",
+    });
+    revalidatePath("/home");
+    revalidatePath("/plan");
+    revalidatePath("/events");
+    return { ok: true };
+  }
   const changes = (row.proposed_changes ?? []) as Array<{ date: string; title: string; sport: Sport; durationMin: number; intensity: Intensity; why: string }>;
   for (const change of changes) {
+    if (!change.sport || !change.date || !change.title || !change.durationMin || !change.intensity) continue;
     await supabase.from("workouts").insert({
       user_id: user.id,
       scheduled_date: change.date,
@@ -693,12 +751,21 @@ export async function logStrength(input: {
   fatigue: number;
   notes: string;
   sets: z.infer<typeof setSchema>[];
+  completedAsPlanned?: boolean;
+  fatigueAfter?: number | null;
+  painReported?: boolean;
+  athleteFeedback?: string;
 }) {
   const { supabase, user } = await limit("log_strength", 60, 3600);
   const sets = z.array(setSchema).min(1).parse(input.sets);
   const started = new Date();
   const volume = sets.reduce((sum, set) => sum + (set.warmup ? 0 : set.reps * set.weightKg), 0);
   const load = Math.round(sets.filter((set) => !set.warmup).length * 8 * (input.rpe / 10));
+  const feedbackNote = [
+    input.notes,
+    input.athleteFeedback ? `Feedback: ${input.athleteFeedback}` : "",
+    input.painReported ? "Pain or discomfort reported after the session." : "",
+  ].filter(Boolean).join("\n");
   const { data: completed, error } = await supabase.from("completed_workouts").insert({
     workout_id: input.workoutId,
     user_id: user.id,
@@ -710,9 +777,22 @@ export async function logStrength(input: {
     rpe: input.rpe,
     fatigue: input.fatigue,
     load,
-    notes: input.notes,
+    notes: feedbackNote,
+    completed_as_planned: input.completedAsPlanned ?? true,
+    fatigue_after: input.fatigueAfter ?? null,
+    pain_reported: input.painReported ?? false,
+    athlete_feedback: input.athleteFeedback ?? "",
   }).select("id").single();
   if (error || !completed) throw new Error(error?.message ?? "Workout was not saved.");
+  if (input.painReported) {
+    await supabase.from("notifications").insert({
+      user_id: user.id,
+      kind: "recovery",
+      title: "Pain reported after training",
+      body: "Tamreen will keep upcoming recommendations conservative. Seek professional care if pain persists or worsens.",
+      href: "/recovery",
+    });
+  }
   await supabase.from("completed_sets").insert(sets.map((set, index) => ({
     completed_workout_id: completed.id,
     exercise_id: set.exerciseId,
@@ -771,6 +851,13 @@ async function recordLiftPrs(
   }
 }
 
+const workoutFeedbackSchema = z.object({
+  completedAsPlanned: z.boolean().optional(),
+  fatigueAfter: z.number().min(1).max(5).nullable().optional(),
+  painReported: z.boolean().optional(),
+  athleteFeedback: z.string().max(500).optional(),
+});
+
 const runSchema = z.object({
   workoutId: z.string().uuid().nullable(),
   title: z.string().min(1),
@@ -785,7 +872,7 @@ const runSchema = z.object({
   splits: z.array(z.number().positive()).max(60),
   rpe: z.number().min(1).max(10),
   notes: z.string().max(500),
-});
+}).merge(workoutFeedbackSchema);
 
 export async function logRun(input: z.infer<typeof runSchema>) {
   const parsed = runSchema.parse(input);
@@ -798,6 +885,11 @@ export async function logRun(input: z.infer<typeof runSchema>) {
     hrEnd: parsed.hrEnd,
   });
   const intensity = parsed.sessionType === "intervals" || parsed.sessionType === "vo2" ? "vo2" : parsed.sessionType === "tempo" || parsed.sessionType === "threshold" ? "threshold" : "easy";
+  const notes = [
+    parsed.notes,
+    parsed.athleteFeedback ? `Feedback: ${parsed.athleteFeedback}` : "",
+    parsed.painReported ? "Pain or discomfort reported after the session." : "",
+  ].filter(Boolean).join("\n");
   const { data: completed, error } = await supabase.from("completed_workouts").insert({
     workout_id: parsed.workoutId,
     user_id: user.id,
@@ -808,9 +900,22 @@ export async function logRun(input: z.infer<typeof runSchema>) {
     duration_min: Math.round(parsed.durationSeconds / 60),
     rpe: parsed.rpe,
     load: sessionLoad(Math.round(parsed.durationSeconds / 60), intensity, "running"),
-    notes: parsed.notes,
+    notes,
+    completed_as_planned: parsed.completedAsPlanned ?? true,
+    fatigue_after: parsed.fatigueAfter ?? null,
+    pain_reported: parsed.painReported ?? false,
+    athlete_feedback: parsed.athleteFeedback ?? "",
   }).select("id").single();
   if (error || !completed) throw new Error(error?.message ?? "Run was not saved.");
+  if (parsed.painReported) {
+    await supabase.from("notifications").insert({
+      user_id: user.id,
+      kind: "recovery",
+      title: "Pain reported after training",
+      body: "Tamreen will keep upcoming recommendations conservative. Seek professional care if pain persists or worsens.",
+      href: "/recovery",
+    });
+  }
   await supabase.from("running_sessions").insert({
     completed_workout_id: completed.id,
     user_id: user.id,
@@ -1520,42 +1625,203 @@ export async function updateSettings(input: {
   return { ok: true };
 }
 
-export async function createPersonalEvent(input: { name: string; eventType: string; date: string; distanceM: number | null; goalTimeSeconds: number | null; location: string }) {
+type PersonalEventInput = {
+  name: string;
+  category?: string;
+  preset?: string;
+  eventType?: string;
+  date: string;
+  distanceM: number | null;
+  swimM?: number | null;
+  bikeM?: number | null;
+  runM?: number | null;
+  goalTimeSeconds: number | null;
+  location: string;
+  priority?: "primary" | "secondary" | "practice";
+  experienceLevel?: string | null;
+  notes?: string;
+  status?: "active" | "completed" | "cancelled";
+};
+
+function eventTypeFromInput(input: PersonalEventInput) {
+  return input.preset || input.eventType || input.category || "race";
+}
+
+function eventCoursePayload(input: PersonalEventInput, templateSlug: string | null) {
+  return {
+    swim_m: input.swimM ?? null,
+    bike_m: input.bikeM ?? null,
+    run_m: input.runM ?? null,
+    template_slug: templateSlug,
+    priority: input.priority ?? "primary",
+    experience_level: input.experienceLevel ?? null,
+    notes: input.notes ?? "",
+    category: input.category ?? null,
+  };
+}
+
+async function upsertEventPreparation(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  eventId: string,
+  startsOn: string,
+  name: string,
+  templateSlug: string | null,
+) {
+  const { resolveEventTemplate } = await import("@/services/events/catalog");
+  const { buildPhasePlan, readinessEvidence } = await import("@/services/events/templates");
+  const template = templateSlug ? resolveEventTemplate(templateSlug) : null;
+  if (!template) return;
+  const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", userId).maybeSingle();
+  const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+  const weeks = Math.max(1, Math.ceil((new Date(`${startsOn}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / (7 * 86400000)));
+  await supabase.from("event_preparation").upsert({
+    user_id: userId,
+    event_id: eventId,
+    template_slug: template.slug,
+    objective: name,
+    phase_plan: buildPhasePlan(template, weeks),
+    readiness_evidence: readinessEvidence(template, {}),
+    current_capabilities: { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks },
+    notes: weeks < template.minPrepWeeks
+      ? "Preparation window is shorter than the template minimum. Volume stays conservative."
+      : "",
+  }, { onConflict: "user_id,event_id" });
+}
+
+export async function createPersonalEvent(input: PersonalEventInput) {
   const { supabase, user } = await limit("event", 20, 3600);
-  const { findEventTemplate, buildPhasePlan, readinessEvidence } = await import("@/services/events/templates");
-  const template = findEventTemplate(input.eventType);
+  const { resolveEventTemplate } = await import("@/services/events/catalog");
+  const eventType = eventTypeFromInput(input);
+  const template = resolveEventTemplate(eventType);
   const distanceM = input.distanceM ?? template?.distanceM ?? null;
+  const swimM = input.swimM ?? template?.swimM ?? null;
+  const bikeM = input.bikeM ?? template?.bikeM ?? null;
+  const runM = input.runM ?? template?.runM ?? null;
+  const templateSlug = template?.slug ?? null;
+  const course = eventCoursePayload({ ...input, swimM, bikeM, runM }, templateSlug);
   const { data: created, error } = await supabase.from("events").insert({
     owner_user_id: user.id,
     name: input.name,
-    event_type: input.eventType,
-    discipline: template?.discipline ?? input.eventType,
+    event_type: eventType,
+    discipline: template?.discipline ?? input.category ?? eventType,
     starts_on: input.date,
     distance_m: distanceM,
+    swim_m: swimM,
+    bike_m: bikeM,
+    run_m: runM,
+    template_slug: templateSlug,
+    priority: input.priority ?? "primary",
+    status: input.status ?? "active",
+    experience_level: input.experienceLevel || null,
+    athlete_notes: input.notes ?? "",
     goal_time_seconds: input.goalTimeSeconds,
     location: input.location,
-    description: template ? `Template: ${template.slug}` : "",
+    course,
+    description: template ? `Template: ${template.slug}` : (input.notes ?? ""),
   }).select("id, starts_on").single();
   if (error || !created) throw new Error(error?.message ?? "Event was not saved.");
-  if (template) {
-    const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
-    const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
-    const weeks = Math.max(1, Math.ceil((new Date(`${created.starts_on}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / (7 * 86400000)));
-    await supabase.from("event_preparation").upsert({
-      user_id: user.id,
-      event_id: created.id,
-      template_slug: template.slug,
-      objective: input.name,
-      phase_plan: buildPhasePlan(template, weeks),
-      readiness_evidence: readinessEvidence(template, {}),
-      current_capabilities: { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks },
-      notes: weeks < template.minPrepWeeks
-        ? "Preparation window is shorter than the template minimum. Volume stays conservative."
-        : "",
-    }, { onConflict: "user_id,event_id" });
-  }
+  await upsertEventPreparation(supabase, user.id, created.id, created.starts_on, input.name, templateSlug);
   revalidatePath("/events");
-  return { ok: true };
+  revalidatePath("/home");
+  revalidatePath("/plan");
+  return { ok: true as const, id: created.id };
+}
+
+export async function updatePersonalEvent(input: PersonalEventInput & { id: string }) {
+  const { supabase, user } = await limit("event_update", 20, 3600);
+  const { resolveEventTemplate } = await import("@/services/events/catalog");
+  const { data: existing, error: existingError } = await supabase
+    .from("events")
+    .select("id, name, starts_on, distance_m, swim_m, bike_m, run_m, priority, goal_time_seconds, event_type, status")
+    .eq("id", input.id)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existingError || !existing) throw new Error(existingError?.message ?? "Event not found.");
+
+  const eventType = eventTypeFromInput(input);
+  const template = resolveEventTemplate(eventType);
+  const distanceM = input.distanceM ?? template?.distanceM ?? null;
+  const swimM = input.swimM ?? template?.swimM ?? null;
+  const bikeM = input.bikeM ?? template?.bikeM ?? null;
+  const runM = input.runM ?? template?.runM ?? null;
+  const templateSlug = template?.slug ?? null;
+  const course = eventCoursePayload({ ...input, swimM, bikeM, runM }, templateSlug);
+  const materialChange = existing.starts_on !== input.date
+    || Number(existing.distance_m ?? 0) !== Number(distanceM ?? 0)
+    || Number(existing.swim_m ?? 0) !== Number(swimM ?? 0)
+    || Number(existing.bike_m ?? 0) !== Number(bikeM ?? 0)
+    || Number(existing.run_m ?? 0) !== Number(runM ?? 0)
+    || (existing.priority ?? "primary") !== (input.priority ?? "primary")
+    || existing.event_type !== eventType
+    || (existing.status ?? "active") !== (input.status ?? "active");
+
+  const { error } = await supabase.from("events").update({
+    name: input.name,
+    event_type: eventType,
+    discipline: template?.discipline ?? input.category ?? eventType,
+    starts_on: input.date,
+    distance_m: distanceM,
+    swim_m: swimM,
+    bike_m: bikeM,
+    run_m: runM,
+    template_slug: templateSlug,
+    priority: input.priority ?? "primary",
+    status: input.status ?? "active",
+    experience_level: input.experienceLevel || null,
+    athlete_notes: input.notes ?? "",
+    goal_time_seconds: input.goalTimeSeconds,
+    location: input.location,
+    course,
+    description: template ? `Template: ${template.slug}` : (input.notes ?? ""),
+    updated_at: new Date().toISOString(),
+  }).eq("id", input.id).eq("owner_user_id", user.id);
+  if (error) throw new Error(error.message);
+
+  await upsertEventPreparation(supabase, user.id, input.id, input.date, input.name, templateSlug);
+
+  let proposalCreated = false;
+  if (materialChange && (input.status ?? "active") === "active") {
+    const { data: proposal, error: proposalError } = await supabase.from("ai_recommendations").insert({
+      user_id: user.id,
+      kind: "event_edit",
+      title: `Update plan for ${input.name}`,
+      body: `You changed ${input.name}. Tamreen can rebuild the integrated multi-event schedule around the new date, distances, and priority. Completed workouts stay unchanged.`,
+      factors: [
+        { label: "Previous date", detail: existing.starts_on },
+        { label: "New date", detail: input.date },
+        { label: "Priority", detail: input.priority ?? "primary" },
+        { label: "Distances", detail: `total ${distanceM ?? "—"} m · swim ${swimM ?? "—"} · bike ${bikeM ?? "—"} · run ${runM ?? "—"}` },
+      ],
+      proposed_changes: [{
+        id: input.id,
+        title: input.name,
+        fromDate: existing.starts_on,
+        toDate: input.date,
+        reason: "Event requirements changed. Accept to rebuild future planned sessions only.",
+        impact: "Archives the current active plan version and writes a new integrated schedule. Completed history is preserved.",
+        eventGoals: [input.name],
+      }],
+      status: "pending",
+    }).select("id").single();
+    if (!proposalError && proposal) {
+      proposalCreated = true;
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        kind: "plan",
+        title: "Event change needs approval",
+        body: `${input.name} changed. Review the proposed plan update before future sessions move.`,
+        href: "/home",
+      });
+    }
+  }
+
+  revalidatePath("/events");
+  revalidatePath(`/events/${input.id}`);
+  revalidatePath("/home");
+  revalidatePath("/plan");
+  return { ok: true as const, proposalCreated };
 }
 
 export async function coachFeedback(athleteId: string, body: string, workoutId: string | null) {

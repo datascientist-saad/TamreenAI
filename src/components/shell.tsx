@@ -81,7 +81,7 @@ export function AppShell({
   return (
     <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-5 md:flex">
-        <Link href="/home" aria-label="Tamreen home"><Wordmark /></Link>
+        <Link href="/home" aria-label="Tamreen home" className="btn btn-ghost justify-start border-transparent px-2"><Wordmark /></Link>
         <nav className="grid min-h-0 gap-4 overflow-y-auto" aria-label="Primary">
           {sideGroups.map((group) => (
             <div key={group.label} className="grid gap-1">
@@ -101,7 +101,7 @@ export function AppShell({
           ) : null}
         </nav>
         <div className="mt-auto grid gap-3">
-          <Link href="/profile" className="flex items-center gap-3 rounded-2xl px-2 py-2 hover:bg-paper">
+          <Link href="/profile" className="flex min-h-11 items-center gap-3 rounded-2xl px-2 py-2 hover:bg-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon">
             <AvatarMark name={athlete.name} src={athlete.avatarUrl} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-bold">{athlete.name}</span>
@@ -111,17 +111,19 @@ export function AppShell({
           <ThemeToggle />
         </div>
       </aside>
-      <div className="min-w-0 safe-bottom md:pb-0">
-        <header className="sticky top-0 z-40 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur md:hidden">
-          <Link href="/home" aria-label="Tamreen home" className="shrink-0"><Mark /></Link>
+      <div className="relative z-0 min-w-0 safe-bottom md:pb-0">
+        <header className="sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur safe-top md:hidden pointer-events-auto">
+          <Link href="/home" aria-label="Tamreen home" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon">
+            <Mark />
+          </Link>
           <div className="flex min-w-0 items-center gap-2">
             <Link
               href="/recovery"
-              className={cn("btn shrink-0", pathname === "/recovery" || pathname.startsWith("/recovery/") ? "btn-primary" : "btn-ghost")}
+              className={cn("btn shrink-0 px-3", pathname === "/recovery" || pathname.startsWith("/recovery/") ? "btn-primary" : "btn-ghost")}
             >
               Check-in
             </Link>
-            <Link href="/profile" aria-label="Profile" className="shrink-0">
+            <Link href="/profile" aria-label="Profile" className="grid h-11 w-11 shrink-0 place-items-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon">
               <AvatarMark name={athlete.name} src={athlete.avatarUrl} size={36} />
             </Link>
             <ThemeToggle compact />
@@ -129,17 +131,23 @@ export function AppShell({
         </header>
         {children}
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-card/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label="Mobile">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/95 px-2 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden pointer-events-auto" aria-label="Mobile">
         <ul className="grid grid-cols-5">
           {tabs.map((tab) => {
             const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
             const Icon = tab.icon;
             const live = tab.href === "/live";
             return (
-              <li key={tab.href} className="grid place-items-center py-2">
-                <Link href={tab.href} className={cn("grid w-full min-h-12 min-w-0 place-items-center px-0.5 text-center text-[11px] font-bold leading-tight", active ? "text-maroon" : "text-muted")}>
-                  <span className={cn("grid h-10 w-10 place-items-center rounded-full", live && "bg-maroon text-white shadow-lg", active && !live && "bg-maroon/10")}>
-                    <Icon size={18} />
+              <li key={tab.href} className="grid place-items-center py-1.5">
+                <Link
+                  href={tab.href}
+                  className={cn(
+                    "grid w-full min-h-12 min-w-[44px] place-items-center px-0.5 text-center text-[11px] font-bold leading-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon",
+                    active ? "text-maroon" : "text-muted",
+                  )}
+                >
+                  <span className={cn("grid h-10 w-10 place-items-center rounded-full", live && active && "bg-maroon text-white shadow-lg", live && !active && "bg-maroon/15 text-maroon", active && !live && "bg-maroon/10")}>
+                    <Icon size={18} strokeWidth={1.75} aria-hidden />
                   </span>
                   {tab.label}
                 </Link>

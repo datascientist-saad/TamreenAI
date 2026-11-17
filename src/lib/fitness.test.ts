@@ -20,6 +20,7 @@ test("readinessTone and recommendationLabel cover empty states", () => {
   assert.equal(readinessTone(60), "ok");
   assert.equal(readinessTone(40), "low");
   assert.equal(recommendationLabel("easy_only"), "Easy only");
-  assert.equal(recommendationLabel("push_ok"), "Push ok");
+  assert.equal(recommendationLabel("push_ok"), "Ready to push");
+  assert.equal(recommendationLabel("train_as_planned"), "Ready to train");
   assert.equal(recommendationLabel(null), "Log a check-in");
 });

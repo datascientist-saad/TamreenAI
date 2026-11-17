@@ -58,6 +58,17 @@ export interface StoredSelections {
   eventDate: string | null;
   eventDistanceM: number | null;
   goalTimeSeconds: number | null;
+  events?: Array<{
+    id: string;
+    name: string;
+    startsOn: string;
+    priority: "primary" | "secondary" | "practice";
+    discipline: string;
+    distanceM: number | null;
+    swimM: number | null;
+    bikeM: number | null;
+    runM: number | null;
+  }>;
   avoidExercises: string[];
   injuryAreas: string[];
   redFlag: boolean;
@@ -209,6 +220,7 @@ export function chatPlanMessages(ctx: AthleteContext, selections: StoredSelectio
       eventDate: selections.eventDate,
       eventDistanceM: selections.eventDistanceM,
       goalTimeSeconds: selections.goalTimeSeconds,
+      events: selections.events ?? [],
       avoidExercises: selections.avoidExercises,
       injuryAreas: selections.injuryAreas,
       sex: selections.sex,
