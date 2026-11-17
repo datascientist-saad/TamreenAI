@@ -761,7 +761,7 @@ function trainingDayCount(ctx: AthleteContext): number {
   return Math.max(new Set(ctx.preferredDays.filter((day) => day >= 0 && day <= 6)).size, 1);
 }
 
-function allowsTwoSessions(ctx: AthleteContext): boolean {
+function allowsTwoSessions(ctx: Pick<AthleteContext, "multipleSessionsPerDay" | "minutesPerDay">): boolean {
   return ctx.multipleSessionsPerDay === true && ctx.minutesPerDay >= 40;
 }
 
@@ -868,6 +868,70 @@ function sameDayClash(template: Template, session: PlannedSession): boolean {
   return false;
 }
 
+/** Hard cap for same-day sessions. Onboarding allows at most two. */
+export const MAX_SESSIONS_PER_DAY = 2;
+
+export function maxSessionsPerDay(ctx: Pick<AthleteContext, "multipleSessionsPerDay" | "minutesPerDay">): number {
+  return allowsTwoSessions(ctx) ? MAX_SESSIONS_PER_DAY : 1;
+}
+
+/**
+ * Keep at most `maxPerDay` sessions on each date (preferring key work), then
+ * make doubled days share `minutesPerDay` so onboarding minutes are respected.
+ */
+export function enforceDailyLimits(
+  sessions: PlannedSession[],
+  minutesPerDay: number,
+  maxPerDay: number = MAX_SESSIONS_PER_DAY,
+): PlannedSession[] {
+  const cap = clamp(Math.floor(maxPerDay), 1, MAX_SESSIONS_PER_DAY);
+  const budget = Math.max(1, minutesPerDay);
+  const groups = new Map<string, PlannedSession[]>();
+  for (const session of sessions) {
+    const list = groups.get(session.date) ?? [];
+    list.push(session);
+    groups.set(session.date, list);
+  }
+  const kept: PlannedSession[] = [];
+  for (const list of groups.values()) {
+    const ranked = [...list].sort(
+      (a, b) =>
+        Number(b.importance === "key") - Number(a.importance === "key") ||
+        Number(b.importance === "supporting") - Number(a.importance === "supporting") ||
+        b.durationMin - a.durationMin ||
+        a.title.localeCompare(b.title),
+    );
+    kept.push(...ranked.slice(0, cap));
+  }
+  return balanceDoubledDays(kept, budget);
+}
+
+/** True when adding `incoming` to `existing` on one day stays within the athlete's day caps. */
+export function fitsDayCapacity(
+  existing: Array<Pick<PlannedSession, "durationMin">>,
+  incoming: Pick<PlannedSession, "durationMin">,
+  minutesPerDay: number,
+  maxPerDay: number = MAX_SESSIONS_PER_DAY,
+): { ok: true } | { ok: false; reason: string } {
+  const cap = clamp(Math.floor(maxPerDay), 1, MAX_SESSIONS_PER_DAY);
+  if (existing.length >= cap) {
+    return {
+      ok: false,
+      reason: cap === 1
+        ? "That day already has a workout. Pick another day, or allow two workouts a day in onboarding."
+        : "That day already has two workouts. The maximum is two per day.",
+    };
+  }
+  const total = existing.reduce((sum, session) => sum + session.durationMin, 0) + incoming.durationMin;
+  if (total > minutesPerDay) {
+    return {
+      ok: false,
+      reason: `That day would reach ${total} minutes. You set ${minutesPerDay} minutes per day in onboarding.`,
+    };
+  }
+  return { ok: true };
+}
+
 export function balanceDoubledDays(sessions: PlannedSession[], minutesPerDay: number): PlannedSession[] {
   const groups = new Map<string, PlannedSession[]>();
   for (const session of sessions) {
@@ -877,13 +941,38 @@ export function balanceDoubledDays(sessions: PlannedSession[], minutesPerDay: nu
   }
   const adjusted = new Map<PlannedSession, PlannedSession>();
   for (const list of groups.values()) {
+    if (list.length === 1) {
+      const session = list[0];
+      if (session.durationMin <= minutesPerDay) continue;
+      const durationMin = clamp(session.durationMin, Math.min(15, minutesPerDay), minutesPerDay);
+      adjusted.set(session, {
+        ...session,
+        durationMin,
+        expectedLoad: sessionLoad(durationMin, session.intensity, session.sport),
+      });
+      continue;
+    }
     if (list.length !== 2) continue;
-    const budget = Math.max(minutesPerDay, 40);
-    const floor = 20;
-    const ranked = [...list].sort((a, b) => Number(b.importance === "key") - Number(a.importance === "key") || b.durationMin - a.durationMin);
-    const primaryMin = clamp(Math.round(budget * 0.65), floor, budget - floor);
+    // Never invent more minutes than onboarding saved.
+    const budget = Math.max(1, minutesPerDay);
+    const floor = Math.max(1, Math.min(15, Math.floor(budget / 2)));
+    const ranked = [...list].sort(
+      (a, b) => Number(b.importance === "key") - Number(a.importance === "key") || b.durationMin - a.durationMin,
+    );
+    const rawTotal = ranked.reduce((sum, session) => sum + Math.max(session.durationMin, 0), 0);
+    let primaryMin: number;
+    let secondaryMin: number;
+    if (rawTotal <= 0) {
+      primaryMin = clamp(Math.round(budget * 0.55), floor, budget - floor);
+      secondaryMin = budget - primaryMin;
+    } else {
+      // Keep the relative sizes from the planner, then scale exactly to the day budget.
+      primaryMin = clamp(Math.round((ranked[0].durationMin / rawTotal) * budget), floor, budget - floor);
+      secondaryMin = budget - primaryMin;
+    }
+    const durations = [primaryMin, secondaryMin];
     ranked.forEach((session, index) => {
-      const durationMin = index === 0 ? primaryMin : budget - primaryMin;
+      const durationMin = durations[index] ?? floor;
       adjusted.set(session, {
         ...session,
         durationMin,
@@ -1133,7 +1222,7 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
     .map((day) => addDays(weekStart, (day + 6) % 7))
     .filter((date) => date >= ctx.startDate)
     .sort();
-  const maxPerDay = allowsTwoSessions(ctx) ? 2 : 1;
+  const maxPerDay = maxSessionsPerDay(ctx);
   const counts = new Map<string, number>();
   const placed: PlannedSession[] = [];
 
@@ -1222,7 +1311,7 @@ function placeTemplates(ctx: AthleteContext, weekStart: string, templates: Templ
       session.why = `Upper-body strength shares this day with ${partnerName} so the sessions complement each other. Upper-body and lower-body lifting stay on different days.`;
     }
   }
-  return balanceDoubledDays(placed, ctx.minutesPerDay)
+  return enforceDailyLimits(placed, ctx.minutesPerDay, maxPerDay)
     .map((session) => withSessionStretches(session, ctx.avoidExercises))
     .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
@@ -1359,7 +1448,7 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
     startDate: ctx.startDate,
     endDate,
     blocks,
-    sessions: taggedSessions,
+    sessions: enforceDailyLimits(taggedSessions, ctx.minutesPerDay, maxSessionsPerDay(ctx)),
   };
 }
 
@@ -1532,16 +1621,27 @@ export function optimizeWeek(ctx: AthleteContext, sessions: PlannedSession[], ho
     strengthLower: session.lowerBody && (session.sport === "strength" || session.sport === "bodybuilding"),
   }));
 
-  const placed = placeTemplates(ctx, weekStart, templates, phase, 0);
+  const dayCap = maxSessionsPerDay(ctx);
+  const placed = enforceDailyLimits(placeTemplates(ctx, weekStart, templates, phase, 0), ctx.minutesPerDay, dayCap);
 
-  // Validate capacity: placed sessions must not exceed minutesPerDay on any day.
+  // Validate capacity: placed sessions must not exceed minutesPerDay or the per-day session cap.
   const placedTotals = dailyTotals(placed);
   const capacityViolations: OptimizeViolation[] = [];
+  const perDayCounts = new Map<string, number>();
+  for (const session of placed) perDayCounts.set(session.date, (perDayCounts.get(session.date) ?? 0) + 1);
   for (const [date, total] of placedTotals) {
     if (total > ctx.minutesPerDay) {
       capacityViolations.push({
         kind: "capacity",
         detail: `${date} would have ${total} planned minutes, exceeding the ${ctx.minutesPerDay} min/day limit. Sessions on this day were not moved.`,
+      });
+    }
+  }
+  for (const [date, count] of perDayCounts) {
+    if (count > dayCap) {
+      capacityViolations.push({
+        kind: "capacity",
+        detail: `${date} would have ${count} sessions, exceeding the ${dayCap}-workout day limit. Sessions on this day were not moved.`,
       });
     }
   }

@@ -176,6 +176,12 @@ export function OnboardingWizard({
         setPending(false);
         return;
       }
+      if (doubles === true && minutes < 40) {
+        setError("Two workouts a day need at least 40 minutes available each day so both sessions can share the budget.");
+        setPending(false);
+        setStep(4);
+        return;
+      }
       const fiveK = clock("fiveK", "5K personal best");
       const tenK = clock("tenK", "10K personal best");
       const halfTime = clock("half", "Half marathon");
@@ -392,6 +398,7 @@ export function OnboardingWizard({
             {selectedDays.length ? `Selected ${selectedDays.length} ${selectedDays.length === 1 ? "day" : "days"}: ${selectedDays.join(", ")}` : "No days selected yet. Choose at least one."}
           </p>
           <label>Minutes available each day<input name="minutes" type="number" min={15} max={360} defaultValue={draft.minutesPerDay} /></label>
+          <p className="text-sm text-muted">This is the total for the day. If you allow two workouts, they share these minutes (for example 120 minutes becomes two sessions that add up to 120).</p>
           <div className="grid gap-2">
             <Choice on={gym} label="Gym" onClick={() => setGym((value) => !value)} />
             <Choice on={pool} label="Pool" onClick={() => setPool((value) => !value)} />
@@ -414,8 +421,8 @@ export function OnboardingWizard({
       <div className={step === 6 ? "grid gap-3" : "hidden"}>
           <fieldset className="grid gap-2">
             <legend className="font-bold">Are you comfortable with more than one workout on the same day?</legend>
-            <p className="text-sm text-muted">Yes means some days can have two sessions, so every sport you picked still fits. No means one workout a day, and any sport that does not fit rotates through the plan.</p>
-            <Choice on={doubles === true} label="Yes — two workouts on some days" onClick={() => setDoubles(true)} />
+            <p className="text-sm text-muted">Yes means some days can have two sessions that share your daily minutes, so every sport you picked still fits. The maximum is two workouts a day — never more. No means one workout a day, and any sport that does not fit rotates through the plan.</p>
+            <Choice on={doubles === true} label="Yes — up to two workouts on some days" onClick={() => setDoubles(true)} />
             <Choice on={doubles === false} label="No — one workout a day" onClick={() => setDoubles(false)} />
           </fieldset>
           <Choice on={training} label="Are you training for something?" onClick={() => setTraining((value) => !value)} />

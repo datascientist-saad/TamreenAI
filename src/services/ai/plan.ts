@@ -1,9 +1,11 @@
 import {
   addDays,
-  balanceDoubledDays,
   buildPlan,
   clamp,
   daysBetween,
+  enforceDailyLimits,
+  maxSessionsPerDay,
+  MAX_SESSIONS_PER_DAY,
   phaseForWeek,
   complementPartner,
   sessionLoad,
@@ -327,8 +329,9 @@ export function planRespectsPairing(plan: BuiltPlan, ctx: AthleteContext): boole
   let paired = false;
   const doubles = ctx.multipleSessionsPerDay === true;
   const partner = complementPartner(ctx);
+  const dayCap = doubles ? MAX_SESSIONS_PER_DAY : 1;
   for (const sessions of byDate.values()) {
-    if (sessions.length > (doubles ? 2 : 1)) return false;
+    if (sessions.length > dayCap) return false;
     const focuses = sessions.map((session) => strengthFocus(session));
     if (focuses.includes("both")) return false;
     if (focuses.includes("upper") && focuses.includes("lower")) return false;
@@ -433,7 +436,7 @@ export function materializeChatPlan(ctx: AthleteContext, draft: unknown, exercis
     startDate: ctx.startDate,
     endDate,
     blocks,
-    sessions: balanceDoubledDays(sessions, ctx.minutesPerDay),
+    sessions: enforceDailyLimits(sessions, ctx.minutesPerDay, maxSessionsPerDay(ctx)),
   };
 }
 
@@ -781,24 +784,44 @@ export function allowedSports(ctx: AthleteContext): Sport[] {
 }
 
 function fitDraftDays(assigned: Array<{ day: number; session: DraftSession }>, minutesPerDay: number) {
-  const byDay = new Map<number, DraftSession[]>();
+  const byDay = new Map<number, Array<{ day: number; session: DraftSession }>>();
   for (const item of assigned) {
     const list = byDay.get(item.day) ?? [];
-    list.push(item.session);
+    list.push(item);
     byDay.set(item.day, list);
   }
+  const drop = new Set<DraftSession>();
   for (const group of byDay.values()) {
-    const total = group.reduce((sum, session) => sum + session.durationMin, 0);
-    if (group.length < 2 || total <= minutesPerDay) continue;
-    const floor = Math.min(20, Math.floor(minutesPerDay / group.length));
-    const scale = minutesPerDay / total;
-    for (const session of group) {
+    if (group.length > MAX_SESSIONS_PER_DAY) {
+      const ranked = [...group].sort(
+        (a, b) => IMPORTANCE_RANK[a.session.importance] - IMPORTANCE_RANK[b.session.importance] || b.session.durationMin - a.session.durationMin,
+      );
+      for (const extra of ranked.slice(MAX_SESSIONS_PER_DAY)) drop.add(extra.session);
+    }
+    const kept = group.filter((item) => !drop.has(item.session)).map((item) => item.session);
+    if (!kept.length) continue;
+    const total = kept.reduce((sum, session) => sum + session.durationMin, 0);
+    if (total <= minutesPerDay && kept.length === 1) {
+      kept[0].durationMin = clamp(kept[0].durationMin, Math.min(15, minutesPerDay), minutesPerDay);
+      continue;
+    }
+    if (total <= minutesPerDay && kept.length === 2) {
+      // Leave relative sizes alone; enforceDailyLimits rebalances to the day budget later.
+      continue;
+    }
+    const floor = Math.min(20, Math.floor(minutesPerDay / Math.max(kept.length, 1)));
+    const scale = minutesPerDay / Math.max(total, 1);
+    for (const session of kept) {
       session.durationMin = clamp(Math.round(session.durationMin * scale), floor, minutesPerDay);
     }
-    const scaled = group.reduce((sum, session) => sum + session.durationMin, 0);
+    const scaled = kept.reduce((sum, session) => sum + session.durationMin, 0);
     if (scaled <= minutesPerDay) continue;
-    const longest = [...group].sort((a, b) => b.durationMin - a.durationMin)[0];
+    const longest = [...kept].sort((a, b) => b.durationMin - a.durationMin)[0];
     if (longest) longest.durationMin = clamp(longest.durationMin - (scaled - minutesPerDay), floor, minutesPerDay);
+  }
+  if (!drop.size) return;
+  for (let index = assigned.length - 1; index >= 0; index -= 1) {
+    if (drop.has(assigned[index].session)) assigned.splice(index, 1);
   }
 }
 
@@ -812,7 +835,7 @@ function draftFocus(session: DraftSession) {
 }
 
 function assignDays(sessions: DraftSession[], preferred: number[], doubles: boolean): Array<{ session: DraftSession; day: number }> {
-  const cap = doubles ? 2 : 1;
+  const cap = doubles ? MAX_SESSIONS_PER_DAY : 1;
   const ranked = [...sessions]
     .map((session, index) => ({ session, index }))
     .sort((a, b) => IMPORTANCE_RANK[a.session.importance] - IMPORTANCE_RANK[b.session.importance] || a.index - b.index)
