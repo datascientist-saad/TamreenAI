@@ -10,7 +10,9 @@ import {
   consistencyScore,
   cyclingScore,
   findConflicts,
+  fitsDayCapacity,
   isPersonalRecord,
+  maxSessionsPerDay,
   optimizeWeek,
   overallScore,
   recommendedWeeklyLoad,
@@ -525,7 +527,16 @@ async function writePlan(supabase: Database, userId: string, options: { status?:
   }
   const { error: clearDraftError } = await supabase.from("training_plans").update({ status: "archived" }).eq("user_id", userId).eq("status", "draft");
   if (clearDraftError) return { ok: false as const, message: clearDraftError.message };
-  const { error: clearError } = await supabase.from("workouts").update({ deleted_at: new Date().toISOString() }).eq("user_id", userId).eq("status", "planned").gte("scheduled_date", today).is("deleted_at", null);
+  // Clear every future non-completed session, including ones marked "moved".
+  // Leaving moved leftovers after a rebuild stacks them on top of the new plan
+  // and can exceed onboarding minutes and the two-workouts-per-day cap.
+  const { error: clearError } = await supabase
+    .from("workouts")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .in("status", ["planned", "moved", "skipped", "missed"])
+    .gte("scheduled_date", today)
+    .is("deleted_at", null);
   if (clearError) return { ok: false as const, message: clearError.message };
 
   const { data: created, error } = await supabase.from("training_plans").insert({
@@ -1217,8 +1228,25 @@ export async function moveWorkout(id: string, date: string, confirm: boolean) {
   const { data: workout } = await supabase.from("workouts").select("*").eq("id", id).eq("user_id", user.id).single();
   if (!workout) throw new Error("Workout not found.");
   if (workout.status === "completed") throw new Error("Completed sessions stay on the day they were done.");
-  const { data: nearby } = await supabase.from("workouts").select("*").eq("user_id", user.id).is("deleted_at", null).gte("scheduled_date", date).lte("scheduled_date", date);
-  const draft: PlannedSession[] = [toPlanned({ ...workout, scheduled_date: date }), ...(nearby ?? []).filter((row) => row.id !== id).map(toPlanned)];
+  const ctx = await contextFor(user.id, supabase);
+  const { data: nearby } = await supabase
+    .from("workouts")
+    .select("*")
+    .eq("user_id", user.id)
+    .in("status", ["planned", "moved"])
+    .is("deleted_at", null)
+    .eq("scheduled_date", date);
+  const others = (nearby ?? []).filter((row) => row.id !== id);
+  const capacity = fitsDayCapacity(
+    others.map((row) => ({ durationMin: row.duration_min ?? 0 })),
+    { durationMin: workout.duration_min ?? 0 },
+    ctx.minutesPerDay,
+    maxSessionsPerDay(ctx),
+  );
+  if (!capacity.ok) {
+    return { ok: false as const, message: capacity.reason, conflicts: [] as ReturnType<typeof findConflicts> };
+  }
+  const draft: PlannedSession[] = [toPlanned({ ...workout, scheduled_date: date }), ...others.map(toPlanned)];
   const conflicts = findConflicts(draft);
   if (conflicts.length && !confirm) {
     return { ok: false, conflicts };

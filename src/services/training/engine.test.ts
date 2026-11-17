@@ -6,8 +6,11 @@ import {
   analyzeRun,
   buildPlan,
   consistencyScore,
+  enforceDailyLimits,
   findConflicts,
+  fitsDayCapacity,
   hasSevereSymptom,
+  maxSessionsPerDay,
   optimizeWeek,
   overallScore,
   runningScore,
@@ -414,6 +417,60 @@ test("BUG-08: plan end date matches event for a 26-week window", () => {
   const last = plan.sessions.reduce((max, s) => (s.date > max ? s.date : max), "");
   assert.ok(last <= event, `plan runs past the event: ${last}`);
   assert.ok(plan.blocks.some((b) => b.phase === "taper"), "taper missing for 26-week event");
+});
+
+test("onboarding minutes are shared across at most two workouts per day", () => {
+  const plan = buildPlan({
+    ...athlete,
+    startDate: "2026-11-17",
+    sports: ["running", "strength", "cycling", "swimming"],
+    primaryGoal: "improve_5k",
+    goals: ["improve_5k", "increase_strength"],
+    preferredDays: [1, 2, 3, 4, 5],
+    minutesPerDay: 120,
+    multipleSessionsPerDay: true,
+    eventDate: null,
+    eventName: null,
+  });
+  const byDate = new Map<string, PlannedSession[]>();
+  for (const item of plan.sessions) {
+    const list = byDate.get(item.date) ?? [];
+    list.push(item);
+    byDate.set(item.date, list);
+  }
+  assert.equal(maxSessionsPerDay({ multipleSessionsPerDay: true, minutesPerDay: 120 }), 2);
+  assert.ok([...byDate.values()].some((list) => list.length === 2));
+  for (const [date, list] of byDate) {
+    assert.ok(list.length <= 2, `${date} has ${list.length} sessions`);
+    const total = list.reduce((sum, item) => sum + item.durationMin, 0);
+    assert.ok(total <= 120, `${date} uses ${total} minutes`);
+    if (list.length === 2) assert.equal(total, 120, `${date} should use the full 120-minute day budget`);
+  }
+});
+
+test("enforceDailyLimits drops a third session and fits the day budget", () => {
+  const limited = enforceDailyLimits(
+    [
+      session({ date: "2026-11-17", title: "A", sport: "running", durationMin: 80, importance: "key" }),
+      session({ date: "2026-11-17", title: "B", sport: "strength", durationMin: 70, importance: "supporting", lowerBody: false }),
+      session({ date: "2026-11-17", title: "C", sport: "swimming", durationMin: 60, importance: "optional", lowerBody: false }),
+    ],
+    120,
+    2,
+  );
+  assert.equal(limited.length, 2);
+  assert.equal(limited.reduce((sum, item) => sum + item.durationMin, 0), 120);
+  assert.equal(limited.some((item) => item.title === "C"), false);
+  const blocked = fitsDayCapacity(
+    [{ durationMin: 60 }, { durationMin: 60 }],
+    { durationMin: 30 },
+    120,
+    2,
+  );
+  assert.equal(blocked.ok, false);
+  const overMinutes = fitsDayCapacity([{ durationMin: 90 }], { durationMin: 40 }, 120, 2);
+  assert.equal(overMinutes.ok, false);
+  assert.equal(fitsDayCapacity([{ durationMin: 50 }], { durationMin: 40 }, 120, 2).ok, true);
 });
 
 test("BUG-02: optimizeWeek reports capacity violation when moves exceed minutesPerDay", () => {

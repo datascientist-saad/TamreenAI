@@ -191,6 +191,42 @@ test("a draft that does not match the selections is rejected", () => {
   assert.equal(materializeChatPlan({ ...athlete, redFlag: true }, draft(), library), null);
 });
 
+test("120-minute days keep at most two sessions that share the budget", () => {
+  const heavy: AthleteContext = {
+    ...athlete,
+    minutesPerDay: 120,
+    multipleSessionsPerDay: true,
+    preferredDays: [1, 6],
+  };
+  const plan = materializeChatPlan(heavy, {
+    name: "Two-a-day budget",
+    explanation: "Uses the saved 120-minute day budget with at most two workouts.",
+    patterns: [{
+      phase: "base",
+      focus: "Budgeted doubles",
+      sessions: [
+        { weekday: 1, sport: "padel", title: "Point play", objective: "Match work", durationMin: 90, intensity: "tempo", importance: "key", recoveryHours: 24, why: "Primary.", lowerBody: true, quality: true, zones: {}, exercises: [] },
+        { weekday: 1, sport: "strength", title: "Upper-body strength", objective: "Upper", durationMin: 90, intensity: "moderate", importance: "supporting", recoveryHours: 18, why: "Pair.", lowerBody: false, quality: false, zones: {}, exercises: [{ slug: "plank", sets: 3, reps: "30 sec", targetRpe: 5, restSeconds: 30, tempo: "controlled", technique: "straight", why: "Trunk." }] },
+        { weekday: 1, sport: "running", title: "Extra run", objective: "Should drop", durationMin: 60, intensity: "easy", importance: "optional", recoveryHours: 18, why: "Third.", lowerBody: true, quality: false, zones: {}, exercises: [] },
+        { weekday: 6, sport: "padel", title: "Saturday padel", objective: "Match", durationMin: 100, intensity: "moderate", importance: "key", recoveryHours: 24, why: "Day two.", lowerBody: true, quality: false, zones: {}, exercises: [] },
+      ],
+    }],
+  }, library);
+  assert.ok(plan);
+  const byDate = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const session of plan?.sessions ?? []) {
+    byDate.set(session.date, (byDate.get(session.date) ?? 0) + session.durationMin);
+    counts.set(session.date, (counts.get(session.date) ?? 0) + 1);
+  }
+  for (const [date, total] of byDate) {
+    assert.ok((counts.get(date) ?? 0) <= 2, date);
+    assert.ok(total <= 120, `${date} used ${total}`);
+  }
+  assert.ok([...counts.values()].some((count) => count === 2));
+  assert.equal(plan ? planRespectsPairing(plan, heavy) : false, true);
+});
+
 test("resolvePlan keeps the engine when ChatGPT cannot be used", async () => {
   let calls = 0;
   const blocked = await resolvePlan({
