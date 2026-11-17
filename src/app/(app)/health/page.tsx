@@ -40,7 +40,7 @@ export default async function HealthPage() {
   }
 
   return (
-    <PageFrame eyebrow="Health" title="Manual health tracking" lede="Enter measurements yourself. Source and method stay visible. Missing values stay blank — Tamreen does not invent them.">
+    <PageFrame title="Health" lede="Manual metrics with source and method. Missing values stay blank." compact>
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {["resting_hr", "hrv", "vo2_max", "sleep_score"].map((slug) => {
           const def = (definitions ?? []).find((row) => row.slug === slug);

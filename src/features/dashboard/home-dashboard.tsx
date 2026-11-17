@@ -1,18 +1,26 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Trophy } from "lucide-react";
-import { DemoBanner, EmptyState, ExplainList, SafetyBanner } from "@/components/states";
+import {
+  Bell,
+  CalendarDays,
+  ClipboardCheck,
+  Flag,
+  Plus,
+  Sparkles,
+} from "lucide-react";
+import { DemoBanner, SafetyBanner } from "@/components/states";
+import { EmptyState } from "@/components/ui/empty-state";
+import { InsightCard } from "@/components/ui/insight-card";
+import { ProgressIndicator } from "@/components/ui/progress-indicator";
+import { WorkoutCard } from "@/components/ui/workout-card";
 import { ReadinessCard } from "@/features/dashboard/readiness-card";
 import { ProposedChangesPanel } from "@/features/plan/proposed-changes";
 import { WhoopMetrics } from "@/features/whoop/metrics";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
 import type { WhoopMetricView } from "@/services/wearables/whoop";
-
-const LoadChart = dynamic(() => import("@/features/dashboard/load-chart").then((mod) => mod.LoadChart));
 
 type TodayWorkout = {
   id: string;
@@ -21,6 +29,8 @@ type TodayWorkout = {
   duration_min: number | null;
   objective: string | null;
   why_text: string | null;
+  status?: string | null;
+  intensity?: string | null;
   camera?: boolean;
 };
 
@@ -79,21 +89,30 @@ export function HomeDashboard({
   weekWorkouts,
   readiness,
   scores,
-  points,
-  target,
-  event,
-  events = [],
   insight,
   conflict,
   whoop,
+  event,
+  events = [],
 }: HomeDashboardProps) {
   const router = useRouter();
   const [pendingInsight, startInsight] = useTransition();
   const [insightDone, setInsightDone] = useState(false);
+  const [showInsightDetail, setShowInsightDetail] = useState(false);
   const overall = scores.find((score) => score.dimension === "overall");
-  const relevant = scores.filter((score) => score.dimension !== "overall" && score.score != null);
   const factors = Array.isArray(insight?.factors) ? insight.factors as Array<{ label: string; detail: string }> : [];
   const activeEvents = events.length ? events : event ? [event] : [];
+  const completedWeek = weekWorkouts.filter((w) => w.status === "completed").length;
+  const plannedWeek = weekWorkouts.length;
+  const weekMinutes = weekWorkouts.reduce((sum, w) => sum + (w.duration_min ?? 0), 0);
+  const nextWorkout = todayWorkouts.find((w) => w.status !== "completed") ?? todayWorkouts[0];
+  const dateLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+
   const proposed = Array.isArray(insight?.proposed_changes)
     ? (insight.proposed_changes as Array<Record<string, unknown>>).map((row, index) => ({
       id: String(row.id ?? row.workoutId ?? index),
@@ -123,53 +142,144 @@ export function HomeDashboard({
       : [];
 
   return (
-    <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-5 *:min-w-0 sm:py-6">
-      <header className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
+    <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-4 *:min-w-0 sm:py-5">
+      <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="eyebrow">Today</p>
-          <h1 className="text-balance text-3xl font-extrabold tracking-tight sm:text-4xl">{greeting(name, hour)}</h1>
-          <div className="mt-3 flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <Link className="btn btn-primary w-full sm:w-auto" href="/plan">Open plan</Link>
-            {isDemo ? <DemoBanner /> : null}
-          </div>
+          <p className="caption">{dateLabel}</p>
+          <h1 className="page-title mt-0.5">{greeting(name, hour)}</h1>
+          {isDemo ? <div className="mt-2"><DemoBanner /></div> : null}
         </div>
-        <ReadinessCard readiness={readiness} />
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Link href="/notifications" className="btn btn-ghost btn-sm" aria-label="Notifications">
+            <Bell size={16} strokeWidth={1.75} aria-hidden />
+          </Link>
+          <Link href="/profile" className="btn btn-ghost btn-sm">Profile</Link>
+        </div>
       </header>
 
-      <WeekStrip today={today} workouts={weekWorkouts} />
+      <ReadinessCard readiness={readiness} />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
 
-      <section className="grid min-w-0 gap-4">
-        <article className="app-card min-w-0 p-4 sm:p-5">
-          <h2 className="text-lg font-bold">Today&apos;s training</h2>
-          {todayWorkouts.length === 0 ? (
-            <EmptyState title="Nothing is scheduled today." body="Today is open. The rest of the week is on your plan." href="/plan" action="Open plan" />
-          ) : (
-            <ul className="mt-4 grid gap-3">
-              {todayWorkouts.map((workout) => (
-                <li key={workout.id} className="min-w-0 rounded-2xl border border-line p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
-                    <span className="metric text-sm">{workout.duration_min ?? "—"} min</span>
-                  </div>
-                  <h3 className="mt-2 text-balance text-xl font-bold sm:text-2xl">{workout.title}</h3>
-                  <p className="text-sm text-muted">{workout.objective}</p>
-                  <p className="mt-2 text-sm">{workout.why_text}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Link className="btn btn-primary w-full sm:w-auto" href={`/train/${workout.id}`}>Start workout</Link>
-                    {workout.camera ? <Link className="btn btn-ghost w-full sm:w-auto" href="/live">Live camera</Link> : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
+      <section className="grid gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="section-title">Today&apos;s training</h2>
+          <Link className="text-sm font-bold text-maroon" href="/plan">Plan</Link>
+        </div>
+        {todayWorkouts.length === 0 ? (
+          <EmptyState
+            title="Rest day"
+            body="Nothing is scheduled. Open the plan to review the week or start a free session."
+            href="/train"
+            action="Open Train"
+            icon={CalendarDays}
+          />
+        ) : (
+          <ul className="grid gap-3">
+            {todayWorkouts.map((workout) => (
+              <li key={workout.id}>
+                <WorkoutCard
+                  id={workout.id}
+                  sport={workout.sport}
+                  title={workout.title}
+                  durationMin={workout.duration_min}
+                  intensity={workout.intensity}
+                  status={workout.status}
+                  objective={workout.objective}
+                  actionLabel={workout.status === "completed" ? "View" : workout.camera ? "Start · camera ready" : "Start"}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
+      {insight && !insightDone ? (
+        <section className="grid gap-2">
+          <InsightCard
+            title={insight.title}
+            body={insight.body}
+            href="/ai"
+            action="Ask coach"
+          />
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm w-full sm:w-auto"
+            onClick={() => setShowInsightDetail((open) => !open)}
+          >
+            {showInsightDetail ? "Hide plan changes" : "Review plan changes"}
+          </button>
+          {showInsightDetail ? (
+            <div className="app-card p-4">
+              <ProposedChangesPanel
+                proposalId={insight.id}
+                explanation={insight.body}
+                changes={proposed}
+                onAcceptAll={async (id) => {
+                  startInsight(async () => {
+                    const { respondToRecommendation } = await import("@/server/actions");
+                    await respondToRecommendation(id, true);
+                    setInsightDone(true);
+                    router.refresh();
+                  });
+                }}
+                onRejectAll={async (id) => {
+                  startInsight(async () => {
+                    const { respondToRecommendation } = await import("@/server/actions");
+                    await respondToRecommendation(id, false);
+                    setInsightDone(true);
+                    router.refresh();
+                  });
+                }}
+              />
+              {pendingInsight ? <p className="sr-only" role="status">Saving recommendation response</p> : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {conflict ? (
+        <article className="app-card border-l-2 border-l-danger p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-danger">{conflict.title}</p>
+          <p className="mt-1 text-sm text-muted">{conflict.explanation}</p>
+          <Link className="btn btn-primary mt-3 w-full sm:w-auto" href="/conflicts">Resolve</Link>
+        </article>
+      ) : null}
+
+      <section className="app-card grid gap-3 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="section-title">This week</h2>
+          <Link className="text-sm font-bold text-maroon" href="/progress">Progress</Link>
+        </div>
+        <ProgressIndicator
+          value={completedWeek}
+          max={Math.max(plannedWeek, 1)}
+          label={`${completedWeek}/${plannedWeek} sessions · ${weekMinutes} min planned`}
+        />
+        {overall?.score != null ? (
+          <p className="text-sm text-muted">
+            Performance score <span className="metric font-bold text-ink">{overall.score}</span>
+            {overall.explanation ? ` · ${overall.explanation}` : ""}
+          </p>
+        ) : null}
+        <WeekDots today={today} workouts={weekWorkouts} />
+      </section>
+
+      {activeEvents[0] ? (
+        <Link href={`/events/${activeEvents[0].id}`} className="app-card flex items-center gap-3 p-4 transition-colors hover:bg-elevated">
+          <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
+            <Flag size={18} strokeWidth={1.75} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold">{activeEvents[0].name}</span>
+            <span className="caption">{activeEvents[0].days} days · {activeEvents[0].event_type}</span>
+          </span>
+        </Link>
+      ) : null}
+
       {whoop ? (
-        <article className="app-card min-w-0 p-4 sm:p-5">
+        <article className="app-card p-4">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-bold">WHOOP</h2>
+            <h2 className="section-title">WHOOP</h2>
             <Link className="text-sm font-bold text-maroon" href="/more">Manage</Link>
           </div>
           <div className="mt-3">
@@ -178,92 +288,41 @@ export function HomeDashboard({
         </article>
       ) : null}
 
-      <section className="grid min-w-0 gap-4 md:grid-cols-3">
-        <article className="app-card min-w-0 p-4 sm:p-5">
-          <p className="eyebrow">Tamreen performance score</p>
-          <p className="metric mt-2 text-5xl font-bold sm:text-6xl">{overall?.score ?? "—"}</p>
-          <p className="text-sm text-muted">{overall?.explanation ?? "The score appears after enough logged training or reported baselines."}</p>
-          <ul className="mt-3 grid gap-2">
-            {relevant.map((score) => (
-              <li key={score.dimension} className="min-w-0">
-                <Link className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-paper px-3 py-2" href={`/progress/${score.dimension}`}>
-                  <span className="capitalize">{score.dimension}</span>
-                  <span className="metric shrink-0 font-bold">{score.score}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </article>
-        <article className="app-card min-w-0 p-4 sm:p-5 md:col-span-2">
-          <h2 className="font-bold">Weekly load vs recommended</h2>
-          <p className="text-sm text-muted">Bars use completed-session load. The dashed line is the daily share of the recommended week.</p>
-          {points.length ? <LoadChart points={points} target={target} /> : <p className="mt-6 text-sm text-muted">No completed sessions in the last 7 days.</p>}
-        </article>
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {nextWorkout ? (
+          <QuickAction href={`/train/${nextWorkout.id}`} icon={Sparkles} label="Start workout" />
+        ) : (
+          <QuickAction href="/train" icon={Sparkles} label="Train" />
+        )}
+        <QuickAction href="/recovery?tab=checkin" icon={ClipboardCheck} label="Check-in" />
+        <QuickAction href="/train#log" icon={Plus} label="Log activity" />
+        <QuickAction href="/health" icon={CalendarDays} label="Health" />
       </section>
-
-      {activeEvents.length ? (
-        <section className="grid min-w-0 gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 font-bold"><Trophy size={18} strokeWidth={1.75} aria-hidden /> Active events</h2>
-            <Link className="text-sm font-bold text-maroon" href="/events">All events</Link>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {activeEvents.slice(0, 4).map((item) => (
-              <article key={item.id} className="app-card min-w-0 p-4 sm:p-5">
-                <p className="eyebrow">{item.priority ? `${item.priority} · ${item.event_type}` : item.event_type}</p>
-                <h3 className="text-balance text-xl font-extrabold sm:text-2xl">{item.name}</h3>
-                <p className="metric text-lg">{item.days} days remaining</p>
-                <Link className="btn btn-ghost mt-3 w-full sm:w-auto" href={`/events/${item.id}`}>Event prep</Link>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {insight && !insightDone ? (
-        <article className="app-card min-w-0 border-l-4 border-l-maroon p-4 sm:p-5">
-          <p className="eyebrow">Why Tamreen is saying this</p>
-          <h2 className="mt-2 text-balance text-xl font-bold">{insight.title}</h2>
-          <ExplainList factors={factors} />
-          <div className="mt-4">
-            <ProposedChangesPanel
-              proposalId={insight.id}
-              explanation={insight.body}
-              changes={proposed}
-              onAcceptAll={async (id) => {
-                startInsight(async () => {
-                  const { respondToRecommendation } = await import("@/server/actions");
-                  await respondToRecommendation(id, true);
-                  setInsightDone(true);
-                  router.refresh();
-                });
-              }}
-              onRejectAll={async (id) => {
-                startInsight(async () => {
-                  const { respondToRecommendation } = await import("@/server/actions");
-                  await respondToRecommendation(id, false);
-                  setInsightDone(true);
-                  router.refresh();
-                });
-              }}
-            />
-            {pendingInsight ? <p className="sr-only" role="status">Saving recommendation response</p> : null}
-          </div>
-        </article>
-      ) : null}
-
-      {conflict ? (
-        <article className="app-card min-w-0 p-4 sm:p-5">
-          <p className="eyebrow text-live">{conflict.title}</p>
-          <p className="mt-2">{conflict.explanation}</p>
-          <Link className="btn btn-primary mt-4 w-full sm:w-auto" href="/conflicts">Optimize schedule</Link>
-        </article>
-      ) : null}
     </main>
   );
 }
 
-function WeekStrip({
+function QuickAction({
+  href,
+  icon: Icon,
+  label,
+}: {
+  href: string;
+  icon: typeof Sparkles;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="app-card flex min-h-14 items-center gap-2 px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-elevated focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon"
+    >
+      <Icon size={16} strokeWidth={1.75} className="shrink-0 text-maroon" aria-hidden />
+      {label}
+    </Link>
+  );
+}
+
+function WeekDots({
   today,
   workouts,
 }: {
@@ -272,31 +331,38 @@ function WeekStrip({
 }) {
   const days = Array.from({ length: 7 }, (_, index) => shiftIsoDate(today, index));
   return (
-    <section className="app-card min-w-0 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-bold">This week</h2>
-        <Link className="text-sm font-bold text-maroon" href="/plan">Full plan</Link>
-      </div>
-      <div className="-mx-4 mt-3 flex snap-x snap-proximity gap-2 overflow-x-auto overscroll-x-contain px-4 pb-1 sm:mx-0 sm:px-0">
-        {days.map((date) => {
-          const rows = workouts.filter((workout) => workout.scheduled_date === date);
-          const first = rows[0];
-          const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
-          return (
-            <Link
-              key={date}
-              href={rows.length > 1 ? `/plan#${date}` : first ? `/train/${first.id}` : "/plan"}
-              className={`w-36 shrink-0 snap-start rounded-2xl border px-3 py-3 sm:w-40 ${date === today ? "border-maroon bg-maroon text-white" : "border-line bg-paper"}`}
-            >
-              <span className="text-xs font-bold uppercase tracking-wide">{date === today ? "Today" : label}</span>
-              <span className="mt-1 line-clamp-3 block min-h-10 font-bold leading-tight">{rows.length ? rows.map((row) => row.title).join(" + ") : "Rest"}</span>
-              <span className={`mt-1 block text-xs ${date === today ? "text-white/80" : "text-muted"}`}>
-                {rows.length ? `${rows.reduce((sum, row) => sum + (row.duration_min ?? 0), 0)} min` : "Open plan"}
-              </span>
-            </Link>
-          );
-        })}
-      </div>
-    </section>
+    <div className="grid grid-cols-7 gap-1.5">
+      {days.map((date) => {
+        const rows = workouts.filter((workout) => workout.scheduled_date === date);
+        const done = rows.some((row) => row.status === "completed");
+        const planned = rows.length > 0;
+        const label = new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "narrow", timeZone: "UTC" });
+        return (
+          <Link
+            key={date}
+            href={rows[0] ? `/train/${rows[0].id}` : "/plan"}
+            className="grid place-items-center gap-1 rounded-[var(--radius-sm)] py-1.5 text-center hover:bg-elevated"
+            title={rows.length ? rows.map((r) => r.title).join(", ") : "Rest"}
+          >
+            <span className="text-[10px] font-bold uppercase text-muted">{label}</span>
+            <span
+              className={
+                date === today
+                  ? "h-2.5 w-2.5 rounded-full bg-maroon"
+                  : done
+                    ? "h-2.5 w-2.5 rounded-full bg-success"
+                    : planned
+                      ? "h-2.5 w-2.5 rounded-full bg-line ring-1 ring-muted/40"
+                      : "h-2.5 w-2.5 rounded-full bg-transparent ring-1 ring-line"
+              }
+              aria-hidden
+            />
+            <span className="sr-only">
+              {date === today ? "Today" : label}: {rows.length ? rows.map((r) => `${sportLabel(r.sport)} ${r.title}`).join(", ") : "Rest"}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }

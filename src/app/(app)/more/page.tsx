@@ -107,7 +107,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
   });
 
   return (
-    <PageFrame eyebrow="More" title="Journeys and setup" lede="Grouped shortcuts for training, body metrics, racing, and account tools.">
+    <PageFrame title="Account & shortcuts" lede="Profile, connections, and secondary journeys." compact>
       <Link href="/profile" className="app-card grid grid-cols-[auto_1fr] items-center gap-4 p-4">
         <AvatarMark name={profile?.full_name || "Athlete"} src={portrait.src} size={64} />
         <span>

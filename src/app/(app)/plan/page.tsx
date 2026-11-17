@@ -54,14 +54,14 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
 
   return (
     <PageFrame
-      eyebrow="Training plan"
-      title={plan?.name ?? "No active plan"}
-      lede={currentBlock ? `${currentBlock.phase} · ${currentBlock.name}` : undefined}
+      title={plan?.name ?? "Plan"}
+      lede={currentBlock ? `${currentBlock.phase} · ${currentBlock.name}` : "Adaptive training calendar"}
+      compact
     >
-      <section className="grid gap-3 sm:grid-cols-3">
-        <SummaryTile label="Current week" value={from.slice(5)} hint={`to ${to.slice(5)}`} />
-        <SummaryTile label="Sessions" value={`${completed}/${mapped.length}`} hint="completed in view" />
-        <SummaryTile label="Volume" value={`${totalMinutes}`} hint="minutes scheduled" />
+      <section className="grid grid-cols-3 gap-2">
+        <SummaryTile label="Window" value={from.slice(5)} hint={`→ ${to.slice(5)}`} />
+        <SummaryTile label="Done" value={`${completed}/${mapped.length}`} hint="sessions" />
+        <SummaryTile label="Volume" value={`${totalMinutes}`} hint="min" />
       </section>
 
       {upcomingEvents.length ? (
@@ -129,10 +129,10 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
 
 function SummaryTile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="app-card min-w-0 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
-      <p className="metric mt-1 text-2xl font-extrabold">{value}</p>
-      <p className="text-xs text-muted">{hint}</p>
+    <div className="app-card min-w-0 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
+      <p className="metric mt-1 text-xl font-bold">{value}</p>
+      <p className="caption">{hint}</p>
     </div>
   );
 }

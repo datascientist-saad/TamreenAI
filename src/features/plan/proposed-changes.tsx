@@ -62,26 +62,26 @@ export function ProposedChangesPanel({
 
   if (done) {
     return (
-      <div className="rounded-2xl border border-line bg-paper p-4 text-sm" role="status" aria-live="polite">
+      <div className="rounded-[var(--radius-md)] border border-line bg-elevated p-4 text-sm" role="status" aria-live="polite">
         {done === "accepted" ? "Changes applied." : "Proposal cancelled. Original schedule kept."}
       </div>
     );
   }
 
   return (
-    <div className="grid gap-3 rounded-2xl border border-line bg-card p-4" aria-live="polite">
+    <div className="grid gap-3" aria-live="polite">
       <div className="flex items-start gap-2">
-        <RefreshCw size={18} strokeWidth={1.75} className="mt-0.5 shrink-0 text-maroon" aria-hidden />
+        <RefreshCw size={16} strokeWidth={1.75} className="mt-0.5 shrink-0 text-maroon" aria-hidden />
         <div className="min-w-0">
-          <p className="font-bold">Proposed changes</p>
-          <p className="mt-1 text-sm text-muted">{explanation}</p>
+          <p className="section-title">Proposed changes</p>
+          <p className="mt-1 text-sm text-muted line-clamp-2">{explanation}</p>
         </div>
       </div>
 
       {violations.length > 0 ? (
         <ul className="grid gap-1 text-xs text-muted">
           {violations.map((item, index) => (
-            <li key={`${item.detail}-${index}`} className="rounded-lg bg-gold/10 px-2 py-1">{item.detail}</li>
+            <li key={`${item.detail}-${index}`} className="rounded-[var(--radius-sm)] bg-warning-soft px-2 py-1">{item.detail}</li>
           ))}
         </ul>
       ) : null}
@@ -90,22 +90,22 @@ export function ProposedChangesPanel({
         {changes.map((change) => {
           const open = Boolean(expanded[change.id]);
           return (
-            <li key={change.id} className="rounded-2xl border border-line bg-paper p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
+            <li key={change.id} className="app-card p-3">
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="font-semibold">{change.title}</p>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
-                    <span className="inline-flex items-center gap-1">
+                  <p className="font-semibold leading-snug">{change.title}</p>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-medium">
+                    <span className="inline-flex items-center gap-1 text-maroon">
                       <CalendarDays size={14} strokeWidth={1.75} aria-hidden />
                       {change.fromDate} → {change.toDate}
                     </span>
                     {change.fromDurationMin != null || change.toDurationMin != null ? (
-                      <span>
-                        {change.fromDurationMin ?? "—"} → {change.toDurationMin ?? "—"} min
+                      <span className="metric text-muted">
+                        {change.fromDurationMin ?? "—"}→{change.toDurationMin ?? "—"} min
                       </span>
                     ) : null}
                     {change.fromIntensity || change.toIntensity ? (
-                      <span>
+                      <span className="text-muted">
                         {change.fromIntensity ?? "—"} → {change.toIntensity ?? "—"}
                       </span>
                     ) : null}
@@ -113,7 +113,7 @@ export function ProposedChangesPanel({
                 </div>
                 <button
                   type="button"
-                  className="btn btn-ghost min-h-10 px-3 text-xs"
+                  className="btn btn-ghost btn-sm shrink-0"
                   aria-expanded={open}
                   onClick={() => setExpanded((prev) => ({ ...prev, [change.id]: !open }))}
                 >
@@ -121,21 +121,27 @@ export function ProposedChangesPanel({
                   <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} aria-hidden />
                 </button>
               </div>
-              <p className="mt-2 text-sm">{change.reason}</p>
-              {change.impact ? <p className="mt-1 text-xs text-muted">Impact: {change.impact}</p> : null}
-              {change.eventGoals?.length ? (
-                <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted">
-                  <Target size={14} strokeWidth={1.75} aria-hidden />
-                  {change.eventGoals.join(" · ")}
-                </p>
+
+              {open ? (
+                <div className="mt-2 grid gap-1.5 border-t border-line pt-2 text-sm text-muted">
+                  <p>{change.reason}</p>
+                  {change.impact ? <p>Impact: {change.impact}</p> : null}
+                  {change.eventGoals?.length ? (
+                    <p className="flex flex-wrap items-center gap-1 caption">
+                      <Target size={12} strokeWidth={1.75} aria-hidden />
+                      {change.eventGoals.join(" · ")}
+                    </p>
+                  ) : null}
+                  {change.detail ? <p>{change.detail}</p> : null}
+                </div>
               ) : null}
-              {open && change.detail ? <p className="mt-2 text-sm text-muted">{change.detail}</p> : null}
+
               {onAcceptOne || onRejectOne ? (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-2.5 flex flex-wrap gap-2">
                   {onAcceptOne ? (
                     <button
                       type="button"
-                      className="btn btn-primary min-h-10 px-3 text-xs"
+                      className="btn btn-primary btn-sm"
                       disabled={Boolean(pending)}
                       aria-busy={pending === `accept-${change.id}`}
                       onClick={() => void run(`accept-${change.id}`, () => onAcceptOne(proposalId, change.id))}
@@ -146,7 +152,7 @@ export function ProposedChangesPanel({
                   {onRejectOne ? (
                     <button
                       type="button"
-                      className="btn btn-ghost min-h-10 px-3 text-xs"
+                      className="btn btn-ghost btn-sm"
                       disabled={Boolean(pending)}
                       aria-busy={pending === `reject-${change.id}`}
                       onClick={() => void run(`reject-${change.id}`, () => onRejectOne(proposalId, change.id))}
@@ -181,7 +187,7 @@ export function ProposedChangesPanel({
           {pending === "reject" ? "Cancelling…" : "Reject all"}
         </button>
       </div>
-      {error ? <p className="text-sm text-live" role="alert">{error}</p> : null}
+      {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
     </div>
   );
 }

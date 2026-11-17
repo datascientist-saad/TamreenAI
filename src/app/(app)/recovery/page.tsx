@@ -30,7 +30,9 @@ function metricNumber(map: Map<string, HealthRow>, slug: string): number | null 
 
 export default async function RecoveryPage({ searchParams }: { searchParams: Promise<{ whoop?: string; tab?: string }> }) {
   const query = await searchParams;
-  const tab = query.tab === "metrics" || query.tab === "history" ? query.tab : "checkin";
+  const tab = query.tab === "metrics" || query.tab === "history" || query.tab === "checkin" || query.tab === "overview"
+    ? query.tab
+    : "overview";
   const { supabase, user } = await requireUser();
   const [{ data: latest }, { data: logs }, { data: athlete }, { data: healthRows }, whoop] = await Promise.all([
     supabase.from("readiness_scores").select("*").eq("user_id", user.id).order("scored_on", { ascending: false }).limit(1).maybeSingle(),
@@ -84,40 +86,60 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
   const history = [...(logs ?? [])].reverse();
   const maxSleep = Math.max(8, ...history.map((log) => Number(log.sleep_hours ?? 0)));
 
+  const score = latest?.overall == null ? null : Number(latest.overall);
+  const toneClass =
+    tone === "good" ? "text-success"
+    : tone === "ok" ? "text-warning"
+    : tone === "low" ? "text-danger"
+    : "text-maroon";
+
   return (
-    <PageFrame
-      eyebrow="Body"
-      title="Recovery"
-      lede="One place for readiness, the daily check-in, and fitness metrics like VO₂ max."
-    >
+    <PageFrame title="Body" lede="Readiness, check-in, health metrics, and recovery trends." compact>
       {latest?.blocked_for_safety ? <SafetyBanner /> : null}
 
-      <section className="app-card overflow-hidden p-0">
-        <div className={cn(
-          "grid gap-4 bg-gradient-to-br from-maroon-deep to-maroon p-5 text-white sm:grid-cols-[auto_1fr] sm:items-center",
-          tone === "good" && "from-[#1f4d3a] to-[#2f6b4f]",
-          tone === "ok" && "from-[#5c3d12] to-[#8a6418]",
-          tone === "low" && "from-[#5a1414] to-live",
-        )}
-        >
-          <ReadinessRing score={latest?.overall == null ? null : Number(latest.overall)} />
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-white/70">Today&apos;s readiness</p>
-            <p className="mt-1 text-2xl font-extrabold">{recommendationLabel(latest?.train_recommendation)}</p>
-            <p className="mt-2 text-sm text-white/85">{latest?.explanation ?? "Save a check-in to score readiness. Tamreen will not invent one."}</p>
-          </div>
+      <Suspense fallback={<div className="h-10 rounded-full bg-line/40" />}>
+        <RecoverySectionTabs />
+      </Suspense>
+
+      {(tab === "overview" || tab === "checkin") ? (
+      <section className="app-card grid gap-4 p-4 sm:grid-cols-[auto_1fr] sm:items-center">
+        <ReadinessRing score={score} tone={tone} />
+        <div className="min-w-0">
+          <p className="eyebrow">Readiness</p>
+          <p className={cn("mt-1 text-2xl font-bold", toneClass)}>
+            {score == null ? "Incomplete" : `${Math.round(score)}/100`}
+          </p>
+          <p className="mt-0.5 text-sm font-semibold">{recommendationLabel(latest?.train_recommendation)}</p>
+          <p className="mt-2 text-sm text-muted line-clamp-3">{latest?.explanation ?? "Save a check-in to score readiness. Tamreen will not invent one."}</p>
         </div>
-        <dl className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-2 sm:col-span-2 sm:grid-cols-4">
           <MetricTile label="VO₂ max" value={vo2 == null ? "—" : `${vo2}`} hint={metricNumber(health, "vo2_max") == null && estimatedVo2 != null ? "est." : "ml/kg/min"} />
           <MetricTile label="Resting HR" value={restingHr == null ? "—" : `${Math.round(restingHr)}`} hint="bpm" />
           <MetricTile label="HRV" value={hrv == null ? "—" : `${hrv}`} hint="ms" />
           <MetricTile label="Sleep" value={logs?.[0]?.sleep_hours == null ? "—" : `${logs[0].sleep_hours}`} hint="hours" />
         </dl>
+        {tab === "overview" ? (
+          <div className="flex flex-wrap gap-2 sm:col-span-2">
+            <Link className="btn btn-primary" href="/recovery?tab=checkin">Daily check-in</Link>
+            <Link className="btn btn-ghost" href="/health">Health log</Link>
+            <Link className="btn btn-ghost" href="/nutrition">Nutrition</Link>
+          </div>
+        ) : null}
       </section>
+      ) : null}
 
-      <Suspense fallback={<div className="grid h-12 grid-cols-3 gap-2 rounded-2xl bg-line/40" />}>
-        <RecoverySectionTabs />
-      </Suspense>
+      {tab === "overview" ? (
+        <section className="grid gap-2 sm:grid-cols-2">
+          <Link href="/health" className="app-card p-4 transition-colors hover:bg-elevated">
+            <h2 className="section-title">Health</h2>
+            <p className="mt-1 text-sm text-muted">Manual metrics with last-updated timestamps.</p>
+          </Link>
+          <Link href="/nutrition" className="app-card p-4 transition-colors hover:bg-elevated">
+            <h2 className="section-title">Nutrition</h2>
+            <p className="mt-1 text-sm text-muted">Calories, macros, and meal logging.</p>
+          </Link>
+        </section>
+      ) : null}
 
       {tab === "checkin" ? (
         <section className="grid gap-3">
@@ -243,38 +265,43 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
   );
 }
 
-function ReadinessRing({ score }: { score: number | null }) {
+function ReadinessRing({ score, tone }: { score: number | null; tone: string }) {
   const value = score == null ? 0 : Math.max(0, Math.min(100, score));
-  const radius = 42;
+  const radius = 40;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
+  const stroke =
+    tone === "good" ? "var(--success)"
+    : tone === "ok" ? "var(--warning)"
+    : tone === "low" ? "var(--danger)"
+    : "var(--maroon)";
   return (
-    <div className="relative mx-auto grid h-28 w-28 place-items-center">
-      <svg className="h-28 w-28 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
-        <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="10" />
+    <div className="relative mx-auto grid h-24 w-24 place-items-center" role="img" aria-label={score == null ? "Readiness unavailable" : `Readiness ${Math.round(score)}`}>
+      <svg className="h-24 w-24 -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r={radius} fill="none" stroke="var(--line)" strokeWidth="8" />
         <circle
           cx="50"
           cy="50"
           r={radius}
           fill="none"
-          stroke="white"
-          strokeWidth="10"
+          stroke={stroke}
+          strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={score == null ? circumference : offset}
         />
       </svg>
-      <p className="metric absolute text-3xl font-extrabold">{score ?? "—"}</p>
+      <p className="metric absolute text-2xl font-bold">{score == null ? "—" : Math.round(score)}</p>
     </div>
   );
 }
 
 function MetricTile({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="min-w-0 rounded-2xl bg-paper px-3 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
-      <p className="metric mt-1 text-2xl font-extrabold">{value}</p>
-      <p className="text-xs text-muted">{hint}</p>
+    <div className="min-w-0 rounded-[var(--radius-sm)] bg-elevated px-3 py-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</p>
+      <p className="metric mt-1 text-xl font-bold">{value}</p>
+      <p className="caption">{hint}</p>
     </div>
   );
 }

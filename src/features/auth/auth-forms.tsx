@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/browser";
 import { Wordmark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-const accountLinkClass = "w-fit font-semibold text-maroon underline decoration-maroon/40 underline-offset-4 dark:text-gold dark:decoration-gold/40";
+const accountLinkClass = "w-fit font-semibold text-maroon underline decoration-maroon/40 underline-offset-4";
 
 export function LoginForm({ next }: { next?: string }) {
   return <AuthCard mode="login" nextPath={next} />;
@@ -234,7 +234,7 @@ function PasswordField({ label, name, autoComplete, hint }: { label: string; nam
       <div className="flex items-center justify-between gap-3">
         <label htmlFor={id}>{label}</label>
         <button
-          className="min-h-11 shrink-0 rounded-lg px-2 text-sm font-bold text-maroon dark:text-gold"
+          className="min-h-11 shrink-0 rounded-lg px-2 text-sm font-bold text-maroon"
           type="button"
           aria-controls={id}
           aria-pressed={visible}
