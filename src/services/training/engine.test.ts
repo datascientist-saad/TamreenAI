@@ -4,6 +4,7 @@ import {
   adaptMissedSession,
   answerCoach,
   analyzeRun,
+  balanceDoubledDays,
   buildPlan,
   consistencyScore,
   enforceDailyLimits,
@@ -471,6 +472,22 @@ test("enforceDailyLimits drops a third session and fits the day budget", () => {
   const overMinutes = fitsDayCapacity([{ durationMin: 90 }], { durationMin: 40 }, 120, 2);
   assert.equal(overMinutes.ok, false);
   assert.equal(fitsDayCapacity([{ durationMin: 50 }], { durationMin: 40 }, 120, 2).ok, true);
+});
+
+test("balanceDoubledDays never invents more than the onboarding minute budget", () => {
+  const scaled = balanceDoubledDays(
+    [
+      session({ date: "2026-11-17", title: "Long run", sport: "running", durationMin: 50, importance: "key" }),
+      session({ date: "2026-11-17", title: "Upper", sport: "strength", durationMin: 30, importance: "supporting", lowerBody: false }),
+    ],
+    30,
+  );
+  assert.equal(scaled.reduce((sum, item) => sum + item.durationMin, 0), 30);
+  assert.ok(scaled.every((item) => item.durationMin <= 30));
+  // Relative sizes are preserved (long run stays larger than upper).
+  const long = scaled.find((item) => item.title === "Long run");
+  const upper = scaled.find((item) => item.title === "Upper");
+  assert.ok((long?.durationMin ?? 0) >= (upper?.durationMin ?? 0));
 });
 
 test("BUG-02: optimizeWeek reports capacity violation when moves exceed minutesPerDay", () => {

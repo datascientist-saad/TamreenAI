@@ -761,7 +761,7 @@ function trainingDayCount(ctx: AthleteContext): number {
   return Math.max(new Set(ctx.preferredDays.filter((day) => day >= 0 && day <= 6)).size, 1);
 }
 
-function allowsTwoSessions(ctx: AthleteContext): boolean {
+function allowsTwoSessions(ctx: Pick<AthleteContext, "multipleSessionsPerDay" | "minutesPerDay">): boolean {
   return ctx.multipleSessionsPerDay === true && ctx.minutesPerDay >= 40;
 }
 
@@ -944,7 +944,7 @@ export function balanceDoubledDays(sessions: PlannedSession[], minutesPerDay: nu
     if (list.length === 1) {
       const session = list[0];
       if (session.durationMin <= minutesPerDay) continue;
-      const durationMin = clamp(session.durationMin, Math.min(20, minutesPerDay), minutesPerDay);
+      const durationMin = clamp(session.durationMin, Math.min(15, minutesPerDay), minutesPerDay);
       adjusted.set(session, {
         ...session,
         durationMin,
@@ -953,13 +953,26 @@ export function balanceDoubledDays(sessions: PlannedSession[], minutesPerDay: nu
       continue;
     }
     if (list.length !== 2) continue;
-    const budget = Math.max(minutesPerDay, 40);
-    const floor = Math.min(20, Math.floor(budget / 2));
-    const ranked = [...list].sort((a, b) => Number(b.importance === "key") - Number(a.importance === "key") || b.durationMin - a.durationMin);
-    // Split the onboarding day budget across both sessions (key work gets a larger share).
-    const primaryMin = clamp(Math.round(budget * 0.55), floor, budget - floor);
+    // Never invent more minutes than onboarding saved.
+    const budget = Math.max(1, minutesPerDay);
+    const floor = Math.max(1, Math.min(15, Math.floor(budget / 2)));
+    const ranked = [...list].sort(
+      (a, b) => Number(b.importance === "key") - Number(a.importance === "key") || b.durationMin - a.durationMin,
+    );
+    const rawTotal = ranked.reduce((sum, session) => sum + Math.max(session.durationMin, 0), 0);
+    let primaryMin: number;
+    let secondaryMin: number;
+    if (rawTotal <= 0) {
+      primaryMin = clamp(Math.round(budget * 0.55), floor, budget - floor);
+      secondaryMin = budget - primaryMin;
+    } else {
+      // Keep the relative sizes from the planner, then scale exactly to the day budget.
+      primaryMin = clamp(Math.round((ranked[0].durationMin / rawTotal) * budget), floor, budget - floor);
+      secondaryMin = budget - primaryMin;
+    }
+    const durations = [primaryMin, secondaryMin];
     ranked.forEach((session, index) => {
-      const durationMin = index === 0 ? primaryMin : budget - primaryMin;
+      const durationMin = durations[index] ?? floor;
       adjusted.set(session, {
         ...session,
         durationMin,

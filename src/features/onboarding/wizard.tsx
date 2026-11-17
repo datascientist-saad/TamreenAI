@@ -176,6 +176,12 @@ export function OnboardingWizard({
         setPending(false);
         return;
       }
+      if (doubles === true && minutes < 40) {
+        setError("Two workouts a day need at least 40 minutes available each day so both sessions can share the budget.");
+        setPending(false);
+        setStep(4);
+        return;
+      }
       const fiveK = clock("fiveK", "5K personal best");
       const tenK = clock("tenK", "10K personal best");
       const halfTime = clock("half", "Half marathon");
