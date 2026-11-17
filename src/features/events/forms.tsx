@@ -124,17 +124,26 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
           };
           if (editing && initial?.id) {
             const result = await updatePersonalEvent({ id: initial.id, ...payload });
+            if (!result.ok) {
+              setError(result.message);
+              return;
+            }
             setMessage(result.proposalCreated
               ? "Event updated. Review proposed plan changes on Home or Plan."
               : "Event updated.");
           } else {
-            await createPersonalEvent(payload);
+            const result = await createPersonalEvent(payload);
+            if (!result.ok) {
+              setError(result.message);
+              return;
+            }
             form.reset();
             setMessage("Event saved. Rebuild your plan to integrate it into one schedule.");
           }
           router.refresh();
         } catch (caught) {
-          setError(caught instanceof Error ? caught.message : "The event was not saved.");
+          const raw = caught instanceof Error ? caught.message : "";
+          setError(raw && !raw.includes("Minified React error") ? raw : "The event was not saved. Try again.");
         } finally {
           setPending(false);
         }
