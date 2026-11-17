@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { displayToKg, kgToDisplay } from "@/lib/utils";
+import { PostWorkoutFeedback, feedbackFromForm } from "@/features/training/post-workout-feedback";
 import { logStrength } from "@/server/actions";
 
 export interface LoggerExercise {
@@ -74,13 +75,18 @@ export function StrengthLogger({
     setPending(true);
     setError(null);
     try {
+      const feedback = feedbackFromForm(formData);
       await logStrength({
         workoutId,
         title,
-        rpe: Number(formData.get("sessionRpe") || 7),
+        rpe: Number(formData.get("sessionRpe") || feedback.difficulty || 7),
         fatigue: Number(formData.get("fatigue") || 5),
         notes: String(formData.get("sessionNotes") || ""),
         sets,
+        completedAsPlanned: feedback.completedAsPlanned,
+        fatigueAfter: feedback.fatigueAfter,
+        painReported: feedback.painReported,
+        athleteFeedback: feedback.athleteFeedback,
       });
       router.push("/records");
       router.refresh();
@@ -151,8 +157,9 @@ export function StrengthLogger({
         <label>Session RPE<input name="sessionRpe" defaultValue="7" inputMode="decimal" /></label>
         <label>Fatigue (1–10)<input name="fatigue" defaultValue="5" inputMode="decimal" /></label>
         <label>Notes<textarea name="sessionNotes" /></label>
-        {error ? <p className="text-sm text-live">{error}</p> : null}
-        <button className="btn btn-primary" disabled={pending || sets.length === 0} type="submit">{pending ? "Saving" : "Save strength session"}</button>
+        <PostWorkoutFeedback />
+        {error ? <p className="text-sm text-live" role="alert">{error}</p> : null}
+        <button className="btn btn-primary" disabled={pending || sets.length === 0} aria-busy={pending} type="submit">{pending ? "Saving…" : "Save strength session"}</button>
       </form>
     </div>
   );

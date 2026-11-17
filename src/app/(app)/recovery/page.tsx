@@ -126,12 +126,26 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
             <p className="text-sm text-muted">Sleep, feelings, and body signals. About one minute.</p>
           </div>
           <RecoveryForm
-            defaults={latestWhoop ? {
-              sleepHours: sleepHoursFromMilli(latestWhoop.asleepMilli),
-              restingHr: latestWhoop.restingHeartRate == null ? null : Math.round(latestWhoop.restingHeartRate),
-              hrv: latestWhoop.hrvRmssdMilli == null ? null : Math.round(latestWhoop.hrvRmssdMilli * 10) / 10,
-              sourceDay: latestWhoop.day,
-            } : undefined}
+            defaults={{
+              sleepHours: logs?.[0]?.sleep_hours == null ? (latestWhoop ? sleepHoursFromMilli(latestWhoop.asleepMilli) : 7.5) : Number(logs[0].sleep_hours),
+              sleepQuality: logs?.[0]?.sleep_quality == null ? null : Number(logs[0].sleep_quality),
+              soreness: logs?.[0]?.soreness == null ? null : Number(logs[0].soreness),
+              fatigue: logs?.[0]?.fatigue == null ? null : Number(logs[0].fatigue),
+              motivation: logs?.[0]?.motivation == null ? null : Number(logs[0].motivation),
+              stress: logs?.[0]?.stress == null ? null : Number(logs[0].stress),
+              restingHr: logs?.[0]?.resting_hr == null
+                ? (latestWhoop?.restingHeartRate == null ? restingHr : Math.round(latestWhoop.restingHeartRate))
+                : Number(logs[0].resting_hr),
+              hrv: logs?.[0]?.hrv == null
+                ? (latestWhoop?.hrvRmssdMilli == null ? hrv : Math.round(latestWhoop.hrvRmssdMilli * 10) / 10)
+                : Number(logs[0].hrv),
+              loggedOn: logs?.[0]?.logged_on ?? null,
+              sourceDay: latestWhoop?.day ?? null,
+              weightKg: weight,
+              bodyFatPct: bodyFat,
+              vo2Max: vo2,
+              sleepScore: latestWhoop?.sleepPerformancePercentage == null ? null : Math.round(latestWhoop.sleepPerformancePercentage),
+            }}
           />
         </section>
       ) : null}

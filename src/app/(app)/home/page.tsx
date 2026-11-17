@@ -54,6 +54,7 @@ export default async function HomePage() {
       points={points}
       target={Math.round(target)}
       event={data.event}
+      events={data.events}
       insight={data.insight}
       conflict={data.conflicts[0] ?? null}
       whoop={

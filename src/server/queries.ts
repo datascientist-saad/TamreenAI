@@ -41,7 +41,7 @@ export async function loadHome() {
     weekWorkouts,
     readiness,
     scores,
-    event,
+    events,
     insight,
     conflicts,
     loads,
@@ -65,7 +65,7 @@ export async function loadHome() {
       .order("scheduled_date"),
     shell.supabase
       .from("readiness_scores")
-      .select("overall, sleep, recovery, recent_load, muscle_fatigue, cardio_fatigue, explanation, train_recommendation, blocked_for_safety, factors, data_origin")
+      .select("overall, sleep, recovery, recent_load, muscle_fatigue, cardio_fatigue, explanation, train_recommendation, blocked_for_safety, factors, data_origin, scored_on")
       .eq("user_id", shell.user.id)
       .order("scored_on", { ascending: false })
       .limit(1)
@@ -78,13 +78,13 @@ export async function loadHome() {
       .limit(20),
     shell.supabase
       .from("events")
-      .select("id, name, event_type, starts_on, goal_time_seconds, data_origin")
+      .select("id, name, event_type, starts_on, goal_time_seconds, data_origin, priority, status")
       .eq("owner_user_id", shell.user.id)
       .is("deleted_at", null)
       .gte("starts_on", today)
+      .neq("status", "cancelled")
       .order("starts_on")
-      .limit(1)
-      .maybeSingle(),
+      .limit(6),
     shell.supabase
       .from("ai_recommendations")
       .select("id, title, body, factors, proposed_changes, status, kind, data_origin")
@@ -128,7 +128,8 @@ export async function loadHome() {
     weekEnd,
     readiness: readiness.data,
     scores: [...latestScores.values()],
-    event: event.data ? { ...event.data, days: daysUntil(event.data.starts_on, today) } : null,
+    events: (events.data ?? []).map((row) => ({ ...row, days: daysUntil(row.starts_on, today) })),
+    event: events.data?.[0] ? { ...events.data[0], days: daysUntil(events.data[0].starts_on, today) } : null,
     insight: insight.data,
     conflicts: conflicts.data ?? [],
     loads: loads.data ?? [],

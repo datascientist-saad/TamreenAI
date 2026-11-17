@@ -72,7 +72,8 @@ button, a, input, select, textarea { font: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
-.safe-bottom { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); }
+.safe-bottom { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
 
 .app-card {
   background: var(--card);
@@ -141,20 +142,43 @@ label { display: grid; gap: 0.4rem; font-size: 0.92rem; font-weight: 600; }
   justify-content: center;
   gap: 0.5rem;
   min-height: 48px;
+  min-width: 44px;
   padding: 0.75rem 1.1rem;
   border-radius: 0.95rem;
   border: 1px solid transparent;
   font-weight: 700;
   cursor: pointer;
   text-decoration: none;
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
+.btn:hover:not(:disabled) { filter: brightness(0.97); }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:focus-visible {
+  outline: 2px solid var(--maroon);
+  outline-offset: 2px;
+}
+.btn[aria-busy="true"] { cursor: progress; }
+
 .btn-primary { background: var(--maroon); color: white; }
-.btn-primary:hover { background: #73122f; }
+.btn-primary:hover:not(:disabled) { background: #73122f; filter: none; }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--line) 55%, transparent); filter: none; }
 .btn-gold { background: var(--gold); color: #3d0e1f; }
+.btn-gold:hover:not(:disabled) { filter: brightness(0.96); }
 .btn-on-dark { background: transparent; color: white; border-color: rgba(255, 255, 255, 0.35); }
-.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-on-dark:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); filter: none; }
+.btn-success { background: #1f4d3a; color: white; }
+.btn-danger { background: transparent; color: var(--live); border-color: color-mix(in srgb, var(--live) 45%, var(--line)); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .btn:active:not(:disabled) { transition: none; transform: none; }
+  html { scroll-behavior: auto; }
+  .skeleton { animation: none; }
+}
 
 .chip {
   display: inline-flex;

@@ -1,11 +1,18 @@
+"use client";
+
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { Trophy } from "lucide-react";
 import { DemoBanner, EmptyState, ExplainList, SafetyBanner } from "@/components/states";
-
-const LoadChart = dynamic(() => import("@/features/dashboard/load-chart").then((mod) => mod.LoadChart));
+import { ReadinessCard } from "@/features/dashboard/readiness-card";
+import { ProposedChangesPanel } from "@/features/plan/proposed-changes";
 import { WhoopMetrics } from "@/features/whoop/metrics";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
 import type { WhoopMetricView } from "@/services/wearables/whoop";
+
+const LoadChart = dynamic(() => import("@/features/dashboard/load-chart").then((mod) => mod.LoadChart));
 
 type TodayWorkout = {
   id: string;
@@ -41,6 +48,8 @@ type Readiness = {
   recent_load?: number | null;
   muscle_fatigue?: number | null;
   cardio_fatigue?: number | null;
+  train_recommendation?: string | null;
+  scored_on?: string | null;
 };
 
 export type HomeDashboardProps = {
@@ -54,8 +63,9 @@ export type HomeDashboardProps = {
   scores: Score[];
   points: Array<{ day: string; load: number }>;
   target: number;
-  event: { id: string; event_type: string; name: string; days: number } | null;
-  insight: { id: string; title: string; body: string; factors: unknown } | null;
+  event: { id: string; event_type: string; name: string; days: number; priority?: string | null } | null;
+  events?: Array<{ id: string; event_type: string; name: string; days: number; priority?: string | null }>;
+  insight: { id: string; title: string; body: string; factors: unknown; proposed_changes?: unknown } | null;
   conflict: { title: string; explanation: string } | null;
   whoop: { status: string; metrics: WhoopMetricView[] } | null;
 };
@@ -72,29 +82,64 @@ export function HomeDashboard({
   points,
   target,
   event,
+  events = [],
   insight,
   conflict,
   whoop,
 }: HomeDashboardProps) {
+  const router = useRouter();
+  const [pendingInsight, startInsight] = useTransition();
+  const [insightDone, setInsightDone] = useState(false);
   const overall = scores.find((score) => score.dimension === "overall");
   const relevant = scores.filter((score) => score.dimension !== "overall" && score.score != null);
   const factors = Array.isArray(insight?.factors) ? insight.factors as Array<{ label: string; detail: string }> : [];
+  const activeEvents = events.length ? events : event ? [event] : [];
+  const proposed = Array.isArray(insight?.proposed_changes)
+    ? (insight.proposed_changes as Array<Record<string, unknown>>).map((row, index) => ({
+      id: String(row.id ?? row.workoutId ?? index),
+      title: String(row.title ?? "Workout change"),
+      fromDate: String(row.fromDate ?? row.from ?? "—"),
+      toDate: String(row.toDate ?? row.to ?? "—"),
+      fromDurationMin: typeof row.fromDurationMin === "number" ? row.fromDurationMin : null,
+      toDurationMin: typeof row.toDurationMin === "number" ? row.toDurationMin : null,
+      fromIntensity: row.fromIntensity == null ? null : String(row.fromIntensity),
+      toIntensity: row.toIntensity == null ? null : String(row.toIntensity),
+      reason: String(row.reason ?? insight?.body ?? "Adaptive schedule change"),
+      impact: row.impact == null ? "Updates upcoming sessions only. Completed workouts stay unchanged." : String(row.impact),
+      eventGoals: Array.isArray(row.eventGoals) ? row.eventGoals.map(String) : activeEvents.slice(0, 2).map((item) => item.name),
+      detail: row.detail == null ? insight?.body ?? null : String(row.detail),
+    }))
+    : insight
+      ? [{
+        id: insight.id,
+        title: insight.title,
+        fromDate: "Current plan",
+        toDate: "Adjusted plan",
+        reason: insight.body,
+        impact: "Applies only after you accept. Completed history is preserved.",
+        eventGoals: activeEvents.slice(0, 2).map((item) => item.name),
+        detail: factors.map((factor) => `${factor.label}: ${factor.detail}`).join(" "),
+      }]
+      : [];
 
   return (
     <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-5 *:min-w-0 sm:py-6">
-      <header className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <header className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
         <div className="min-w-0">
           <p className="eyebrow">Today</p>
           <h1 className="text-balance text-3xl font-extrabold tracking-tight sm:text-4xl">{greeting(name, hour)}</h1>
+          <div className="mt-3 flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <Link className="btn btn-primary w-full sm:w-auto" href="/plan">Open plan</Link>
+            {isDemo ? <DemoBanner /> : null}
+          </div>
         </div>
-        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-2xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-          <Link className="btn btn-primary w-full sm:w-auto" href="/plan">Open plan</Link>
-          {isDemo ? <DemoBanner /> : null}
-        </div>
+        <ReadinessCard readiness={readiness} />
       </header>
+
       <WeekStrip today={today} workouts={weekWorkouts} />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
-      <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)]">
+
+      <section className="grid min-w-0 gap-4">
         <article className="app-card min-w-0 p-4 sm:p-5">
           <h2 className="text-lg font-bold">Today&apos;s training</h2>
           {todayWorkouts.length === 0 ? (
@@ -119,20 +164,8 @@ export function HomeDashboard({
             </ul>
           )}
         </article>
-        <article className="app-card min-w-0 p-4 sm:p-5">
-          <p className="eyebrow">Readiness</p>
-          <p className="metric mt-2 text-5xl font-bold sm:text-6xl">{readiness?.overall ?? "—"}</p>
-          <p className="text-sm text-muted">{readiness?.explanation ?? "Log a recovery check-in to score readiness. Tamreen will not invent one."}</p>
-          <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
-            <Stat label="Sleep" value={readiness?.sleep} />
-            <Stat label="Recovery" value={readiness?.recovery} />
-            <Stat label="Recent load" value={readiness?.recent_load} />
-            <Stat label="Muscle fatigue" value={readiness?.muscle_fatigue} />
-            <Stat label="Cardio fatigue" value={readiness?.cardio_fatigue} />
-          </dl>
-          <Link className="btn btn-ghost mt-4 w-full" href="/recovery">Log recovery</Link>
-        </article>
       </section>
+
       {whoop ? (
         <article className="app-card min-w-0 p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
@@ -144,6 +177,7 @@ export function HomeDashboard({
           </div>
         </article>
       ) : null}
+
       <section className="grid min-w-0 gap-4 md:grid-cols-3">
         <article className="app-card min-w-0 p-4 sm:p-5">
           <p className="eyebrow">Tamreen performance score</p>
@@ -166,30 +200,58 @@ export function HomeDashboard({
           {points.length ? <LoadChart points={points} target={target} /> : <p className="mt-6 text-sm text-muted">No completed sessions in the last 7 days.</p>}
         </article>
       </section>
-      {event ? (
-        <article className="app-card min-w-0 p-4 sm:p-5">
-          <p className="eyebrow">{event.event_type}</p>
-          <h2 className="text-balance text-xl font-extrabold sm:text-2xl">{event.name}</h2>
-          <p className="metric text-lg">{event.days} days remaining</p>
-          <Link className="btn btn-ghost mt-3 w-full sm:w-auto" href={`/events/${event.id}`}>Event plan</Link>
-        </article>
+
+      {activeEvents.length ? (
+        <section className="grid min-w-0 gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 font-bold"><Trophy size={18} strokeWidth={1.75} aria-hidden /> Active events</h2>
+            <Link className="text-sm font-bold text-maroon" href="/events">All events</Link>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {activeEvents.slice(0, 4).map((item) => (
+              <article key={item.id} className="app-card min-w-0 p-4 sm:p-5">
+                <p className="eyebrow">{item.priority ? `${item.priority} · ${item.event_type}` : item.event_type}</p>
+                <h3 className="text-balance text-xl font-extrabold sm:text-2xl">{item.name}</h3>
+                <p className="metric text-lg">{item.days} days remaining</p>
+                <Link className="btn btn-ghost mt-3 w-full sm:w-auto" href={`/events/${item.id}`}>Event prep</Link>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
-      {insight ? (
+
+      {insight && !insightDone ? (
         <article className="app-card min-w-0 border-l-4 border-l-maroon p-4 sm:p-5">
           <p className="eyebrow">Why Tamreen is saying this</p>
           <h2 className="mt-2 text-balance text-xl font-bold">{insight.title}</h2>
-          <p className="mt-2">{insight.body}</p>
           <ExplainList factors={factors} />
-          <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
-            <form action={async () => { "use server"; const { respondToRecommendation } = await import("@/server/actions"); await respondToRecommendation(insight.id, true); }}>
-              <button className="btn btn-primary w-full sm:w-auto" type="submit">Accept changes</button>
-            </form>
-            <form action={async () => { "use server"; const { respondToRecommendation } = await import("@/server/actions"); await respondToRecommendation(insight.id, false); }}>
-              <button className="btn btn-ghost w-full sm:w-auto" type="submit">Keep original</button>
-            </form>
+          <div className="mt-4">
+            <ProposedChangesPanel
+              proposalId={insight.id}
+              explanation={insight.body}
+              changes={proposed}
+              onAcceptAll={async (id) => {
+                startInsight(async () => {
+                  const { respondToRecommendation } = await import("@/server/actions");
+                  await respondToRecommendation(id, true);
+                  setInsightDone(true);
+                  router.refresh();
+                });
+              }}
+              onRejectAll={async (id) => {
+                startInsight(async () => {
+                  const { respondToRecommendation } = await import("@/server/actions");
+                  await respondToRecommendation(id, false);
+                  setInsightDone(true);
+                  router.refresh();
+                });
+              }}
+            />
+            {pendingInsight ? <p className="sr-only" role="status">Saving recommendation response</p> : null}
           </div>
         </article>
       ) : null}
+
       {conflict ? (
         <article className="app-card min-w-0 p-4 sm:p-5">
           <p className="eyebrow text-live">{conflict.title}</p>
@@ -236,14 +298,5 @@ function WeekStrip({
         })}
       </div>
     </section>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number | null | undefined }) {
-  return (
-    <div className="min-w-0 rounded-xl bg-paper px-3 py-2">
-      <dt className="text-xs leading-tight text-muted sm:text-sm">{label}</dt>
-      <dd className="metric text-xl font-bold">{value ?? "—"}</dd>
-    </div>
   );
 }

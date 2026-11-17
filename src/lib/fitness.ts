@@ -17,10 +17,12 @@ export function readinessTone(score: number | null | undefined): "good" | "ok" |
 export function recommendationLabel(value: string | null | undefined): string {
   if (!value) return "Log a check-in";
   const labels: Record<string, string> = {
-    push_ok: "Push ok",
-    normal: "Train as planned",
+    push_ok: "Ready to push",
+    train_as_planned: "Ready to train",
+    normal: "Ready to train",
     easy_only: "Easy only",
     rest: "Rest today",
+    seek_care: "Seek care",
     modify: "Modify the session",
   };
   return labels[value] ?? value.replaceAll("_", " ");

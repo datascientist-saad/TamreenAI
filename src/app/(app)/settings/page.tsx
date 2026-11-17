@@ -61,7 +61,12 @@ export default async function SettingsPage() {
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Data</h2>
-        <a className="btn btn-ghost mt-2" href="/api/me/export">Download your data</a>
+        <p className="text-sm text-muted">Export a branded performance report, or download raw JSON/CSV for your records.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a className="btn btn-primary" href="/api/me/report" target="_blank" rel="noreferrer">Export Athlete Report</a>
+          <a className="btn btn-ghost" href="/api/me/export">Raw JSON export</a>
+          <a className="btn btn-ghost" href="/api/me/export.csv">Raw CSV export</a>
+        </div>
       </section>
       <section className="app-card p-4">
         <h2 className="font-bold">Subscription</h2>

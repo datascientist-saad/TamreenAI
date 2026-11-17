@@ -59,6 +59,19 @@ export type CatalogSport =
   | "badminton"
   | "cricket";
 
+export type PlanningEventRef = {
+  id: string;
+  name: string;
+  startsOn: string;
+  priority: "primary" | "secondary" | "practice";
+  discipline: string;
+  distanceM?: number | null;
+  swimM?: number | null;
+  bikeM?: number | null;
+  runM?: number | null;
+  sports?: Array<"running" | "cycling" | "swimming" | "strength">;
+};
+
 export interface AthleteContext {
   startDate: string;
   sports: CatalogSport[];
@@ -74,6 +87,8 @@ export interface AthleteContext {
   bikeAccess: boolean;
   eventDate: string | null;
   eventName: string | null;
+  /** All active events feeding one integrated schedule. Anchor remains eventDate/eventName. */
+  events?: PlanningEventRef[];
   avoidExercises: string[];
   currentInjuryAreas: string[];
   redFlag: boolean;
@@ -1298,11 +1313,36 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
       ? "There are more selected sports than training days, so the extra sports rotate through the plan and every one of them still appears."
       : "",
   ].filter(Boolean);
+  const activeEvents = ctx.events ?? [];
+  const multiEventNotes = activeEvents.length > 1
+    ? `One integrated schedule covers ${activeEvents.length} active events (${activeEvents.map((event) => `${event.name}/${event.priority}`).join(", ")}). Primary goals get taper priority; secondary and practice races share useful sessions instead of stacking separate plans.`
+    : "";
+  const taggedSessions = sessions.map((session) => {
+    const supports = activeEvents.filter((event) => {
+      const sports = event.sports ?? [];
+      if (!sports.length) return event.priority !== "practice" || session.importance !== "optional";
+      if (session.sport === "brick") return sports.includes("running") || sports.includes("cycling") || event.discipline === "triathlon";
+      if (session.sport === "strength" || session.sport === "bodybuilding" || session.sport === "mobility" || session.sport === "recovery") return true;
+      return sports.includes(session.sport as "running" | "cycling" | "swimming" | "strength");
+    });
+    return {
+      ...session,
+      structure: {
+        ...session.structure,
+        supportsEventIds: supports.map((event) => event.id),
+        supportsEventNames: supports.map((event) => event.name),
+      },
+      why: supports.length
+        ? `${session.why} Supports: ${supports.map((event) => event.name).join(", ")}.`
+        : session.why,
+    };
+  });
   const explanation = [
     `This is one plan for ${ctx.sports.length ? joinNames(ctx.sports) : "general training"}.`,
     ctx.eventName && ctx.eventDate
       ? `${ctx.eventName} is on ${ctx.eventDate}, so the block order moves from base toward a taper instead of repeating four unrelated programs.`
       : "No event date is set, so the plan uses an eight-to-sixteen week base and build rhythm with a recovery week every fourth week.",
+    multiEventNotes,
     trainingNotes.join(" ") || "The week follows the sports and the days you selected.",
     ctx.poolAccess ? "" : "Pool access is off, so swim sessions are not scheduled.",
     ctx.redFlag
@@ -1312,12 +1352,14 @@ export function buildPlan(ctx: AthleteContext): BuiltPlan {
     .filter(Boolean)
     .join(" ");
   return {
-    name: ctx.eventName ? `${ctx.eventName} plan` : "Hybrid training plan",
+    name: activeEvents.length > 1
+      ? `Multi-event plan · ${ctx.eventName ?? "hybrid"}`
+      : ctx.eventName ? `${ctx.eventName} plan` : "Hybrid training plan",
     explanation,
     startDate: ctx.startDate,
     endDate,
     blocks,
-    sessions,
+    sessions: taggedSessions,
   };
 }
 
