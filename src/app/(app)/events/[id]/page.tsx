@@ -41,30 +41,29 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
 
   return (
     <PageFrame
-      eyebrow={event.event_type}
       title={event.name}
-      lede={`${event.priority ?? "primary"} event · ${event.status ?? "active"}`}
-      actions={<Link className="btn btn-ghost" href="/events">All events</Link>}
+      lede={`${event.event_type} · ${event.priority ?? "primary"} · ${event.status ?? "active"}`}
+      compact
+      actions={<Link className="btn btn-ghost btn-sm" href="/events">All events</Link>}
     >
-      <section className="grid gap-3 sm:grid-cols-3">
-        <div className="app-card p-4">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted"><CalendarDays size={14} strokeWidth={1.75} aria-hidden /> Countdown</p>
-          <p className="metric mt-1 text-3xl font-extrabold">{days >= 0 ? `${days}d` : "Done"}</p>
-          <p className="text-sm text-muted">{event.starts_on}</p>
+      <section className="grid grid-cols-3 gap-2">
+        <div className="app-card p-3">
+          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted"><CalendarDays size={12} strokeWidth={1.75} aria-hidden /> Days</p>
+          <p className="metric mt-1 text-2xl font-bold">{days >= 0 ? days : "—"}</p>
+          <p className="caption">{event.starts_on}</p>
         </div>
-        <div className="app-card p-4">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted"><Target size={14} strokeWidth={1.75} aria-hidden /> Target</p>
-          <p className="metric mt-1 text-3xl font-extrabold">{event.goal_time_seconds ? formatClock(event.goal_time_seconds) : "—"}</p>
-          <p className="text-sm text-muted">{event.location || "Location not set"}</p>
+        <div className="app-card p-3">
+          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted"><Target size={12} strokeWidth={1.75} aria-hidden /> Goal</p>
+          <p className="metric mt-1 text-2xl font-bold">{event.goal_time_seconds ? formatClock(event.goal_time_seconds) : "—"}</p>
+          <p className="caption">{event.location || "No location"}</p>
         </div>
-        <div className="app-card p-4">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted"><Trophy size={14} strokeWidth={1.75} aria-hidden /> Distances</p>
-          <p className="mt-2 text-sm">
+        <div className="app-card p-3">
+          <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted"><Trophy size={12} strokeWidth={1.75} aria-hidden /> Distance</p>
+          <p className="mt-2 text-sm font-semibold leading-snug">
             {event.swim_m || event.bike_m || event.run_m
-              ? `Swim ${formatDistanceKm(event.swim_m)} · Bike ${formatDistanceKm(event.bike_m)} · Run ${formatDistanceKm(event.run_m)}`
+              ? `${formatDistanceKm(event.swim_m)} / ${formatDistanceKm(event.bike_m)} / ${formatDistanceKm(event.run_m)}`
               : formatDistanceKm(event.distance_m)}
           </p>
-          <p className="mt-1 text-xs text-muted">Progress uses completed linked sessions, not a medical readiness score.</p>
         </div>
       </section>
 

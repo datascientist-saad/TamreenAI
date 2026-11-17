@@ -187,7 +187,7 @@ export function NutritionLogger({ foods }: { foods: CatalogFood[] }) {
           setMessage(result.ok ? "Targets recalculated from profile and today's sessions." : result.message);
         }}
       >
-        Recalculate today's targets
+        Recalculate today&apos;s targets
       </button>
     </div>
   );

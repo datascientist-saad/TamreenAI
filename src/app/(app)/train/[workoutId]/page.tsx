@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Camera, ChevronLeft } from "lucide-react";
 import { PageFrame } from "@/components/page";
+import { SportIcon } from "@/components/ui/sport-icon";
 import { StrengthLogger, type LoggerExercise } from "@/features/strength/logger";
-import { sportLabel, todayInTimeZone } from "@/lib/utils";
+import { formatDuration, intensityLabel, sportLabel, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 import { liveSlugForLibrary } from "@/services/live/catalog";
 
@@ -58,19 +60,28 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
     : [];
 
   return (
-    <PageFrame eyebrow={sportLabel(workout.sport)} title={workout.title} lede={workout.why_text}>
-      <p className="text-sm text-muted">{workout.duration_min} min · {workout.intensity} · {workout.status}</p>
-      <p>{workout.objective}</p>
-      {!strength && exercises.length ? (
-        <ul className="grid gap-2">
-          {exercises.map((exercise) => (
-            <li key={`${exercise.name}-${exercise.reps}`} className="rounded-xl bg-paper px-3 py-2 text-sm">
-              <span className="font-bold">{exercise.name}</span> · {exercise.sets} × {exercise.reps}
-              {exercise.why ? <span className="block text-muted">{exercise.why}</span> : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+    <PageFrame
+      title={workout.title}
+      compact
+      actions={
+        <Link href="/train" className="btn btn-ghost btn-sm">
+          <ChevronLeft size={16} strokeWidth={1.75} aria-hidden />
+          Train
+        </Link>
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`chip sport-${workout.sport} inline-flex items-center gap-1`}>
+          <SportIcon sport={workout.sport} size={12} />
+          {sportLabel(workout.sport)}
+        </span>
+        <span className={`chip status-${workout.status}`}>{workout.status}</span>
+        <span className="metric text-sm text-muted">
+          {workout.duration_min != null ? formatDuration(workout.duration_min) : "—"}
+          {workout.intensity ? ` · ${intensityLabel(workout.intensity)}` : ""}
+        </span>
+      </div>
+
       {strength ? (
         <StrengthLogger
           workoutId={workout.id}
@@ -79,21 +90,67 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
           weightUnit={settings?.weight_unit === "lb" ? "lb" : "kg"}
         />
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {workout.sport === "running" || workout.sport === "brick" ? <Link className="btn btn-primary" href={`/log/run?workout=${workout.id}&title=${encodeURIComponent(workout.title)}&intensity=${encodeURIComponent(workout.intensity)}`}>Log run</Link> : null}
-          {workout.sport === "cycling" || workout.sport === "brick" ? <Link className="btn btn-primary" href={`/log/ride?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log ride</Link> : null}
-          {workout.sport === "swimming" ? <Link className="btn btn-primary" href={`/log/swim?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log swim</Link> : null}
-          {workout.sport === "mobility" || workout.sport === "recovery" ? <Link className="btn btn-primary" href="/recovery">Log recovery</Link> : null}
+        <div className="grid gap-3">
+          {exercises.length ? (
+            <ul className="app-card divide-y divide-line">
+              {exercises.map((exercise) => (
+                <li key={`${exercise.name}-${exercise.reps}`} className="px-4 py-3">
+                  <p className="font-bold">{exercise.name}</p>
+                  <p className="metric text-sm text-muted">{exercise.sets} × {exercise.reps}</p>
+                </li>
+              ))}
+            </ul>
+          ) : workout.objective ? (
+            <p className="app-card p-4 text-sm">{workout.objective}</p>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            {workout.sport === "running" || workout.sport === "brick" ? (
+              <Link className="btn btn-primary" href={`/log/run?workout=${workout.id}&title=${encodeURIComponent(workout.title)}&intensity=${encodeURIComponent(workout.intensity)}`}>Log run</Link>
+            ) : null}
+            {workout.sport === "cycling" || workout.sport === "brick" ? (
+              <Link className="btn btn-primary" href={`/log/ride?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log ride</Link>
+            ) : null}
+            {workout.sport === "swimming" ? (
+              <Link className="btn btn-primary" href={`/log/swim?workout=${workout.id}&title=${encodeURIComponent(workout.title)}`}>Log swim</Link>
+            ) : null}
+            {workout.sport === "mobility" || workout.sport === "recovery" ? (
+              <Link className="btn btn-primary" href="/recovery">Log recovery</Link>
+            ) : null}
+          </div>
         </div>
       )}
+
       {cameras.length ? (
-        <div className="grid gap-2">
+        <section className="grid gap-2">
+          <h2 className="section-title">Live camera</h2>
           {cameras.map((exercise) => (
-            <Link key={`${exercise.slug}-${exercise.name}`} className="btn btn-ghost" href={`/live/${exercise.slug}?workout=${workout.id}`}>Open camera · {exercise.name}</Link>
+            <Link key={`${exercise.slug}-${exercise.name}`} className="btn btn-soft w-full justify-between" href={`/live/${exercise.slug}?workout=${workout.id}`}>
+              <span className="inline-flex items-center gap-2">
+                <Camera size={16} strokeWidth={1.75} aria-hidden />
+                {exercise.name}
+              </span>
+              <span className="text-sm">Open</span>
+            </Link>
           ))}
-        </div>
+        </section>
       ) : null}
-      {workout.scheduled_date !== today && strength ? <p className="text-sm text-muted">The live camera opens on the day this session is scheduled.</p> : null}
+
+      {(workout.objective || workout.why_text) ? (
+        <details className="app-card p-4">
+          <summary className="cursor-pointer font-semibold">Why this workout</summary>
+          <div className="mt-2 grid gap-2 text-sm text-muted">
+            {workout.objective ? <p>{workout.objective}</p> : null}
+            {workout.why_text ? <p>{workout.why_text}</p> : null}
+          </div>
+        </details>
+      ) : null}
+
+      {workout.scheduled_date !== today && strength ? (
+        <p className="caption">Live camera opens on the day this session is scheduled.</p>
+      ) : null}
+
+      <Link className="text-sm font-bold text-maroon" href="/ai">Ask AI Coach about this session</Link>
     </PageFrame>
   );
 }

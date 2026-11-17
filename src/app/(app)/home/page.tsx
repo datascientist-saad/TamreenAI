@@ -46,6 +46,8 @@ export default async function HomePage() {
         duration_min: workout.duration_min,
         objective: workout.objective,
         why_text: workout.why_text,
+        status: workout.status,
+        intensity: workout.intensity,
         camera: workoutHasLiveCamera(workout.workout_exercises),
       }))}
       weekWorkouts={data.weekWorkouts}
