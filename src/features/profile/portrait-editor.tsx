@@ -2,15 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { actionErrorMessage, avatarContentType, avatarExtension } from "@/lib/avatar-file";
 import { initials } from "@/lib/portrait";
-import { clearAvatar, uploadAvatar } from "@/server/actions";
+import { createClient } from "@/lib/supabase/browser";
+import { clearAvatar, saveAvatarPath } from "@/server/actions";
 
 export function PortraitEditor({
+  userId,
   name,
   src,
   source,
   googleAvailable,
 }: {
+  userId: string;
   name: string;
   src: string | null;
   source: "upload" | "google" | "none";
@@ -26,17 +30,45 @@ export function PortraitEditor({
   async function onFile(file: File | undefined) {
     if (!file) return;
     setError("");
+    const type = avatarContentType(file);
+    if (!type) {
+      setError("Use a JPEG, PNG, or WebP photo.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Photos stay under 5 MB.");
+      return;
+    }
+
     const local = URL.createObjectURL(file);
     setPreview(local);
     setPending(true);
-    const body = new FormData();
-    body.set("file", file);
     try {
-      await uploadAvatar(body);
+      const ext = avatarExtension(type);
+      const path = `${userId}/avatar.${ext}`;
+      const supabase = createClient();
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: type,
+      });
+      if (uploadError) throw new Error(uploadError.message);
+
+      const others = (["jpg", "png", "webp"] as const).filter((item) => item !== ext).map((item) => `${userId}/avatar.${item}`);
+      if (others.length) await supabase.storage.from("avatars").remove(others);
+
+      const { error: profileError } = await supabase.from("profiles").update({ avatar_path: path }).eq("id", userId);
+      if (profileError) throw new Error(profileError.message);
+
+      try {
+        await saveAvatarPath(path);
+      } catch (caught) {
+        // Storage + profile already saved. Ignore opaque production RSC digests from revalidate.
+        if (!(caught instanceof Error) || !caught.message.includes("Minified React error")) throw caught;
+      }
       router.refresh();
     } catch (caught) {
       setPreview(null);
-      setError(caught instanceof Error ? caught.message : "The photo was not saved.");
+      setError(actionErrorMessage(caught, "The photo was not saved. Try again."));
     } finally {
       setPending(false);
     }
@@ -50,7 +82,7 @@ export function PortraitEditor({
       await clearAvatar();
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The Google photo was not restored.");
+      setError(actionErrorMessage(caught, "The Google photo was not restored."));
     } finally {
       setPending(false);
     }
@@ -76,9 +108,13 @@ export function PortraitEditor({
           <input
             className="sr-only"
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
             disabled={pending}
-            onChange={(event) => void onFile(event.target.files?.[0])}
+            onChange={(event) => {
+              const chosen = event.target.files?.[0];
+              event.target.value = "";
+              void onFile(chosen);
+            }}
           />
         </label>
         {source === "upload" && googleAvailable ? (
@@ -87,7 +123,7 @@ export function PortraitEditor({
           </button>
         ) : null}
       </div>
-      {error ? <p className="text-sm text-gold">{error}</p> : null}
+      {error ? <p className="text-sm text-gold" role="alert">{error}</p> : null}
     </div>
   );
 }
