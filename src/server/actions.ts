@@ -1505,24 +1505,16 @@ export async function updateDisplayName(name: string) {
   return { ok: true as const, name: fullName };
 }
 
-export async function uploadAvatar(formData: FormData) {
+/** Persist an avatar path after the browser uploaded the file to Storage. */
+export async function saveAvatarPath(path: string) {
   const { supabase, user } = await limit("avatar", 20, 3600);
-  const file = formData.get("file");
-  if (!(file instanceof File)) throw new Error("Choose a photo.");
-  if (file.size > 5 * 1024 * 1024) throw new Error("Photos stay under 5 MB.");
-  const type = file.type === "image/png" ? "image/png" : file.type === "image/webp" ? "image/webp" : file.type === "image/jpeg" ? "image/jpeg" : "";
-  if (!type) throw new Error("Use a JPEG, PNG, or WebP photo.");
-  const ext = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
-  const path = `${user.id}/avatar.${ext}`;
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const { error } = await supabase.storage.from("avatars").upload(path, bytes, { upsert: true, contentType: type });
+  const cleaned = z.string().trim().min(1).max(200).parse(path);
+  const allowed = [`${user.id}/avatar.jpg`, `${user.id}/avatar.png`, `${user.id}/avatar.webp`];
+  if (!allowed.includes(cleaned)) throw new Error("That photo path is not valid for this account.");
+  const { error } = await supabase.from("profiles").update({ avatar_path: cleaned }).eq("id", user.id);
   if (error) throw new Error(error.message);
-  const others = ["jpg", "png", "webp"].filter((item) => item !== ext).map((item) => `${user.id}/avatar.${item}`);
-  if (others.length) await supabase.storage.from("avatars").remove(others);
-  const { error: profileError } = await supabase.from("profiles").update({ avatar_path: path }).eq("id", user.id);
-  if (profileError) throw new Error(profileError.message);
   refreshProfile();
-  return { ok: true as const, path };
+  return { ok: true as const, path: cleaned };
 }
 
 export async function clearAvatar() {

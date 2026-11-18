@@ -4,6 +4,13 @@ import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 
+function linkErrorMessage(message: string): string {
+  if (/manual linking is disabled/i.test(message)) {
+    return "Google linking is not enabled on this project yet. In Supabase go to Authentication → Providers and turn on Manual linking, then try again.";
+  }
+  return message;
+}
+
 export function GoogleLinkButton({ alreadyLinked, next = "/more" }: { alreadyLinked: boolean; next?: string }) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -34,13 +41,17 @@ export function GoogleLinkButton({ alreadyLinked, next = "/more" }: { alreadyLin
               },
             });
             if (authError) {
-              setError(authError.message);
+              setError(linkErrorMessage(authError.message));
               setPending(false);
               return;
             }
-            if (!data?.url) setPending(false);
+            if (data?.url) {
+              window.location.assign(data.url);
+              return;
+            }
+            setPending(false);
           } catch (caught) {
-            setError(caught instanceof Error ? caught.message : "Google did not connect.");
+            setError(caught instanceof Error ? linkErrorMessage(caught.message) : "Google did not connect.");
             setPending(false);
           }
         }}

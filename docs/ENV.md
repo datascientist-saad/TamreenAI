@@ -32,6 +32,16 @@ If no AI key is set, plan generation and coaching use Tamreen’s deterministic 
 
 Garmin, Apple Health, and other automatic wearable sync are **out of scope** for this MVP. Manual health entry covers those metrics.
 
+## Auth (hosted Supabase)
+
+Email/password users need **Manual linking** enabled so Profile → Connect Google works (`linkIdentity`).
+
+1. Open [Authentication → Providers](https://supabase.com/dashboard/project/_/auth/providers)
+2. Enable **Manual linking**
+3. Keep Google provider enabled with the production redirect URLs
+
+Local development mirrors this in `supabase/config.toml` via `enable_manual_linking = true`.
+
 ## Migrations
 
 Apply SQL in `supabase/migrations` in filename order (or use linked Supabase CLI / MCP `apply_migration`). This MVP adds `20261111120000_mvp_health_nutrition_prefs.sql` after the Strava credentials migration.

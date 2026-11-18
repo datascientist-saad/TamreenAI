@@ -61,7 +61,7 @@ export default async function ProfilePage() {
     <main className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6">
       <section className="overflow-hidden rounded-[2rem] bg-maroon text-white shadow-[var(--shadow)]">
         <div className="grid gap-6 p-6 md:grid-cols-[auto_1fr] md:items-center md:p-8">
-          <PortraitEditor name={name} src={portrait.src} source={portrait.source} googleAvailable={googleLinked} />
+          <PortraitEditor userId={user.id} name={name} src={portrait.src} source={portrait.source} googleAvailable={googleLinked} />
           <div className="grid gap-4">
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.16em] text-gold">Profile</p>

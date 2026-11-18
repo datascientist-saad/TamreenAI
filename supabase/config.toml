@@ -1,0 +1,8 @@
+# Tamreen AI — local Supabase config.
+# Hosted projects must mirror critical Auth flags in the dashboard
+# (Authentication → Providers), especially manual linking for Connect Google.
+
+[auth]
+enabled = true
+# Required for profile "Connect Google" (supabase.auth.linkIdentity).
+enable_manual_linking = true
