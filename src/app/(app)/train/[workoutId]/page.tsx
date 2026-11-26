@@ -1,15 +1,25 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Camera, ChevronLeft } from "lucide-react";
+import { Camera } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { PageFrame } from "@/components/page";
 import { SportIcon } from "@/components/ui/sport-icon";
 import { StrengthLogger, type LoggerExercise } from "@/features/strength/logger";
+import { sanitizeReturnTo } from "@/lib/navigation";
 import { formatDuration, intensityLabel, sportLabel, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 import { liveSlugForLibrary } from "@/services/live/catalog";
 
-export default async function TrainPage({ params }: { params: Promise<{ workoutId: string }> }) {
+export default async function TrainPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ workoutId: string }>;
+  searchParams: Promise<{ from?: string }>;
+}) {
   const { workoutId } = await params;
+  const { from } = await searchParams;
+  const returnTo = sanitizeReturnTo(from);
   const { supabase, user } = await requireUser();
   const [{ data: workout }, { data: settings }, { data: history }, { data: athlete }] = await Promise.all([
     supabase
@@ -63,12 +73,7 @@ export default async function TrainPage({ params }: { params: Promise<{ workoutI
     <PageFrame
       title={workout.title}
       compact
-      actions={
-        <Link href="/train" className="btn btn-ghost btn-sm">
-          <ChevronLeft size={16} strokeWidth={1.75} aria-hidden />
-          Train
-        </Link>
-      }
+      actions={<BackLink from={returnTo} kind="workout" />}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className={`chip sport-${workout.sport} inline-flex items-center gap-1`}>

@@ -2250,6 +2250,109 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
   return { ok: true as const, proposalCreated };
 }
 
+/** Soft-delete an athlete event, then recalculate the future schedule around remaining events. */
+export async function deletePersonalEvent(input: { id: string }) {
+  const { supabase, user } = await limit("event_delete", 20, 3600);
+  const { data: existing, error: existingError } = await supabase
+    .from("events")
+    .select("id, name, starts_on, priority, template_slug, status")
+    .eq("id", input.id)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existingError || !existing) {
+    return { ok: false as const, message: existingError?.message ?? "Event not found.", deleted: false, replanOk: false, weekHref: null as string | null };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("events").update({
+    status: "cancelled",
+    deleted_at: now,
+    updated_at: now,
+  }).eq("id", input.id).eq("owner_user_id", user.id).is("deleted_at", null);
+  if (error) {
+    return { ok: false as const, message: error.message, deleted: false, replanOk: false, weekHref: null as string | null };
+  }
+
+  const weekHref = `/plan?week=${existing.starts_on.slice(0, 10)}&tab=schedule`;
+  let replanOk = true;
+  let proposalCreated = false;
+  let message = `"${existing.name}" was deleted. The schedule around ${existing.starts_on} will update for remaining events.`;
+  try {
+    const recalc = await runEventAwareRecalculation(supabase, user.id, {
+      trigger: "event_cancel",
+      eventId: input.id,
+      templateSlug: existing.template_slug,
+      createProposal: true,
+    });
+    proposalCreated = recalc.ok ? Boolean(recalc.proposalCreated) : false;
+    if (!recalc.ok) {
+      replanOk = false;
+      message = `"${existing.name}" was deleted, but plan recalculation failed. Retry the plan update without deleting again.`;
+    } else if (proposalCreated) {
+      message = `"${existing.name}" was deleted. Review proposed plan changes on Today.`;
+    }
+  } catch (caught) {
+    replanOk = false;
+    message = caught instanceof Error
+      ? `"${existing.name}" was deleted, but plan recalculation failed: ${caught.message}`
+      : `"${existing.name}" was deleted, but plan recalculation failed.`;
+  }
+
+  revalidatePath("/events");
+  revalidatePath(`/events/${input.id}`);
+  revalidatePath("/home");
+  revalidatePath("/plan");
+  revalidatePath("/nutrition");
+  return {
+    ok: true as const,
+    deleted: true,
+    replanOk,
+    proposalCreated,
+    message,
+    weekHref,
+    eventName: existing.name,
+    eventDate: existing.starts_on,
+    wasPrimary: (existing.priority ?? "primary") === "primary",
+  };
+}
+
+/** Retry plan recalculation after a successful event delete/edit when replan previously failed. */
+export async function retryEventReplan(input: {
+  eventId: string;
+  trigger?: "event_cancel" | "event_edit" | "event_create";
+}) {
+  const { supabase, user } = await limit("event_replan", 20, 3600);
+  const trigger = input.trigger ?? "event_cancel";
+  try {
+    const { data: event } = await supabase
+      .from("events")
+      .select("id, template_slug, starts_on")
+      .eq("id", input.eventId)
+      .eq("owner_user_id", user.id)
+      .maybeSingle();
+    const recalc = await runEventAwareRecalculation(supabase, user.id, {
+      trigger,
+      eventId: input.eventId,
+      endsOn: event?.starts_on ?? null,
+      templateSlug: event?.template_slug ?? null,
+      createProposal: true,
+    });
+    revalidatePath("/events");
+    revalidatePath("/home");
+    revalidatePath("/plan");
+    if (!recalc.ok) {
+      return { ok: false as const, message: recalc.message || "Plan recalculation failed." };
+    }
+    return { ok: true as const, proposalCreated: Boolean(recalc.proposalCreated) };
+  } catch (caught) {
+    return {
+      ok: false as const,
+      message: caught instanceof Error ? caught.message : "Plan recalculation failed.",
+    };
+  }
+}
+
 export async function coachFeedback(athleteId: string, body: string, workoutId: string | null) {
   const { supabase, user } = await limit("coach_feedback", 30, 3600);
   const { error } = await supabase.from("coach_feedback").insert({

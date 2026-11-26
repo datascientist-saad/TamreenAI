@@ -6,7 +6,7 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   Dumbbell,
-  HeartPulse,
+  Ellipsis,
   House,
 } from "lucide-react";
 import { AvatarMark } from "./avatar";
@@ -14,58 +14,59 @@ import { Mark, Wordmark } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/utils";
 
-/** Primary athlete destinations — mirrored on mobile bottom nav and desktop sidebar. */
+/** Primary athlete destinations — same five on mobile bottom nav and desktop sidebar. */
 const tabs = [
-  { href: "/home", label: "Home", icon: House },
+  { href: "/home", label: "Today", icon: House },
   { href: "/plan", label: "Plan", icon: CalendarDays },
   { href: "/train", label: "Train", icon: Dumbbell },
-  { href: "/recovery", label: "Body", icon: HeartPulse },
   { href: "/progress", label: "Progress", icon: ChartNoAxesCombined },
+  { href: "/more", label: "More", icon: Ellipsis },
 ] as const;
 
 const sideGroups = [
   {
-    label: "Train",
+    label: "Today",
     items: [
-      ["/home", "Home"],
-      ["/plan", "Plan"],
-      ["/train", "Train"],
-      ["/live", "Live camera"],
-      ["/calendar", "Calendar"],
+      ["/home", "Today"],
+      ["/recovery?tab=checkin", "Daily check-in"],
     ],
   },
   {
-    label: "Body",
+    label: "Plan",
     items: [
-      ["/recovery", "Overview"],
-      ["/health", "Health"],
-      ["/nutrition", "Nutrition"],
+      ["/plan", "Weekly schedule"],
+      ["/plan?tab=events", "Events"],
+      ["/calendar", "Month calendar"],
+      ["/conflicts", "Conflicts"],
+    ],
+  },
+  {
+    label: "Train",
+    items: [
+      ["/train", "Train hub"],
+      ["/live", "Live camera"],
+      ["/train#log", "Log activity"],
     ],
   },
   {
     label: "Progress",
     items: [
       ["/progress", "Performance"],
-      ["/records", "Records"],
-      ["/analytics", "Analytics"],
+      ["/records", "Training history"],
+      ["/analytics", "Trends"],
+      ["/recovery", "Recovery & body"],
       ["/weekly", "Weekly review"],
     ],
   },
   {
-    label: "Compete",
+    label: "More",
     items: [
-      ["/events", "Events"],
-      ["/triathlon", "Triathlon"],
-    ],
-  },
-  {
-    label: "Account",
-    items: [
+      ["/more", "All shortcuts"],
+      ["/nutrition", "Nutrition"],
+      ["/ai", "AI coach"],
       ["/profile", "Profile"],
       ["/settings", "Settings"],
       ["/notifications", "Notifications"],
-      ["/ai", "AI coach"],
-      ["/more", "All shortcuts"],
     ],
   },
 ] as const;
@@ -95,7 +96,7 @@ export function AppShell({
   return (
     <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
       <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-4 md:flex">
-        <Link href="/home" aria-label="Tamreen home" className="btn btn-ghost justify-start border-transparent px-2">
+        <Link href="/home" aria-label="Tamreen Today" className="btn btn-ghost justify-start border-transparent px-2">
           <Wordmark />
         </Link>
         <nav className="grid min-h-0 gap-4 overflow-y-auto" aria-label="Primary">
@@ -135,7 +136,7 @@ export function AppShell({
         <header className="sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur safe-top md:hidden pointer-events-auto">
           <Link
             href="/home"
-            aria-label="Tamreen home"
+            aria-label="Tamreen Today"
             className="grid h-11 w-11 shrink-0 place-items-center rounded-[var(--radius-sm)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon"
           >
             <Mark />
@@ -143,7 +144,7 @@ export function AppShell({
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               href="/notifications"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm min-h-11 min-w-11"
               aria-label="Notifications"
             >
               Alerts
@@ -162,7 +163,7 @@ export function AppShell({
 
       <nav
         className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/95 px-1 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur md:hidden pointer-events-auto"
-        aria-label="Mobile"
+        aria-label="Primary"
       >
         <ul className="grid grid-cols-5">
           {tabs.map((tab) => {
@@ -194,23 +195,52 @@ export function AppShell({
 }
 
 function isTabActive(pathname: string, href: string) {
+  if (href === "/home") {
+    return pathname === "/home" || pathname.startsWith("/home/");
+  }
   if (href === "/train") {
     return pathname === "/train" || pathname.startsWith("/train/") || pathname.startsWith("/live") || pathname.startsWith("/log/");
   }
-  if (href === "/recovery") {
-    return pathname === "/recovery" || pathname.startsWith("/recovery/") || pathname.startsWith("/health") || pathname.startsWith("/nutrition");
-  }
   if (href === "/progress") {
-    return pathname === "/progress" || pathname.startsWith("/progress/") || pathname.startsWith("/analytics") || pathname.startsWith("/records") || pathname.startsWith("/weekly");
+    return (
+      pathname === "/progress"
+      || pathname.startsWith("/progress/")
+      || pathname.startsWith("/analytics")
+      || pathname.startsWith("/records")
+      || pathname.startsWith("/weekly")
+      || pathname === "/recovery"
+      || pathname.startsWith("/recovery/")
+      || pathname.startsWith("/health")
+    );
   }
   if (href === "/plan") {
-    return pathname === "/plan" || pathname.startsWith("/plan/") || pathname.startsWith("/calendar") || pathname.startsWith("/conflicts");
+    return (
+      pathname === "/plan"
+      || pathname.startsWith("/plan/")
+      || pathname.startsWith("/calendar")
+      || pathname.startsWith("/conflicts")
+      || pathname === "/events"
+      || pathname.startsWith("/events/")
+      || pathname.startsWith("/triathlon")
+    );
+  }
+  if (href === "/more") {
+    return (
+      pathname === "/more"
+      || pathname.startsWith("/more/")
+      || pathname.startsWith("/nutrition")
+      || pathname.startsWith("/ai")
+      || pathname.startsWith("/profile")
+      || pathname.startsWith("/settings")
+      || pathname.startsWith("/notifications")
+    );
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 function SideLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
-  const active = pathname === href || pathname.startsWith(`${href}/`);
+  const pathOnly = href.split("?")[0]?.split("#")[0] ?? href;
+  const active = pathname === pathOnly || (pathOnly !== "/home" && pathname.startsWith(`${pathOnly}/`)) || (pathOnly === "/home" && pathname === "/home");
   return (
     <Link
       href={href}

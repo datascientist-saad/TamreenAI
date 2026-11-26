@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GripVertical } from "lucide-react";
+import { Flag, GripVertical, Moon } from "lucide-react";
 import { moveWorkout, optimizeOpenConflicts, setWorkoutStatus } from "@/server/actions";
+import { withReturnTo } from "@/lib/navigation";
 import { formatDuration, intensityLabel, shiftIsoDate, sportLabel } from "@/lib/utils";
+import { SportIcon } from "@/components/ui/sport-icon";
 import { OptimizeButton } from "./optimize-button";
 import { RebuildPlanButton } from "./rebuild-button";
 import { StatusChoices } from "./status-choices";
@@ -26,18 +28,24 @@ function asView(value: string): View {
 
 export function PlanEditor({
   today,
+  weekStart,
+  focusDay = null,
   initialView,
   lockView = false,
   showRebuild = false,
   blocks,
   workouts,
+  returnTo,
 }: {
   today: string;
+  weekStart?: string;
+  focusDay?: string | null;
   initialView: string;
   lockView?: boolean;
   showRebuild?: boolean;
   blocks: PlanBlock[];
   workouts: PlanWorkout[];
+  returnTo?: string;
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>(asView(initialView));
@@ -73,16 +81,31 @@ export function PlanEditor({
   monthEndDate.setUTCDate(0);
   const monthEnd = monthEndDate.toISOString().slice(0, 10);
   const currentBlock = blocks.find((block) => block.start_date <= today && block.end_date >= today) ?? blocks[0];
+  const weekAnchor = weekStart ?? today;
   const primary = view === "today"
     ? [today]
     : view === "week"
-      ? datesBetween(today, shiftIsoDate(today, 6))
+      ? datesBetween(weekAnchor, shiftIsoDate(weekAnchor, 6))
       : view === "month"
         ? datesBetween(monthStart, monthEnd)
         : currentBlock
           ? datesBetween(currentBlock.start_date, currentBlock.end_date)
           : [today];
   const extra = view === "today" ? datesBetween(shiftIsoDate(today, 1), shiftIsoDate(today, 6)) : [];
+
+  useEffect(() => {
+    if (!focusDay) return;
+    const node = document.getElementById(focusDay);
+    node?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusDay]);
+
+  function chooseView(next: View) {
+    setView(next);
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    params.set("view", next);
+    if (weekStart) params.set("week", weekStart);
+    router.replace(`/plan?${params.toString()}`, { scroll: false });
+  }
 
   function patch(id: string, update: Partial<PlanWorkout>) {
     setItems((list) => list.map((workout) => workout.id === id ? { ...workout, ...update } : workout));
@@ -185,13 +208,15 @@ export function PlanEditor({
     <div className="grid gap-4">
       <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-paper/95 px-4 py-2.5 backdrop-blur md:top-0 md:z-20">
         {lockView ? null : (
-          <div className="flex gap-1 overflow-x-auto">
+          <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Plan view">
             {views.map((item) => (
               <button
                 key={item}
                 type="button"
+                role="tab"
+                aria-selected={view === item}
                 className={`btn btn-sm capitalize ${view === item ? "btn-primary" : "btn-ghost"}`}
-                onClick={() => setView(item)}
+                onClick={() => chooseView(item)}
               >
                 {item}
               </button>
@@ -241,7 +266,12 @@ export function PlanEditor({
                   className={`grid min-h-24 min-w-0 gap-2 rounded-[var(--radius-lg)] p-2.5 ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
                 >
                   <h2 className="px-1 text-sm font-bold">{dayHeading(date, today)}</h2>
-                  {rows.length === 0 ? <p className="px-1 caption">Rest — drop a workout here</p> : null}
+                  {rows.length === 0 ? (
+                    <p className="flex items-center gap-1.5 px-1 caption">
+                      <Moon size={12} strokeWidth={1.75} aria-hidden />
+                      Rest — drop a workout here
+                    </p>
+                  ) : null}
                   {rows.map((workout) => (
                     <article key={workout.id} className="app-card min-w-0 overflow-hidden p-3" data-day={date}>
                       <div className="flex items-start gap-2">
@@ -260,13 +290,24 @@ export function PlanEditor({
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            {workout.is_event_session ? (
-                              <span className="chip border border-maroon text-maroon">Event</span>
+                            {workout.is_event_session || workout.phase_hint === "event" ? (
+                              <span className="chip inline-flex items-center gap-1 border border-maroon text-maroon">
+                                <Flag size={12} strokeWidth={1.75} aria-hidden />
+                                Race
+                              </span>
+                            ) : workout.sport === "recovery" || workout.sport === "mobility" || workout.phase_hint === "recovery" ? (
+                              <span className="chip inline-flex items-center gap-1">
+                                <Moon size={12} strokeWidth={1.75} aria-hidden />
+                                Rest
+                              </span>
                             ) : (
-                              <span className={`chip sport-${workout.sport}`}>{sportLabel(workout.sport)}</span>
+                              <span className={`chip sport-${workout.sport} inline-flex items-center gap-1`}>
+                                <SportIcon sport={workout.sport} size={12} />
+                                {sportLabel(workout.sport)}
+                              </span>
                             )}
                             {workout.phase_hint === "taper" ? <span className="chip">Taper</span> : null}
-                            {workout.phase_hint === "recovery" ? <span className="chip">Recovery</span> : null}
+                            {workout.phase_hint === "recovery" && workout.sport !== "recovery" ? <span className="chip">Recovery</span> : null}
                             <span className={`chip status-${workout.status}`}>{statusLabel(workout.status)}</span>
                           </div>
                           <h3 className="mt-1.5 text-base font-bold leading-snug">{workout.title}</h3>
@@ -301,9 +342,9 @@ export function PlanEditor({
                       ) : null}
                       <div className="mt-2.5 flex flex-wrap gap-2">
                         {workout.is_event_session && workout.event_id ? (
-                          <Link className="btn btn-primary btn-sm" href={`/events/${workout.event_id}`}>Event prep</Link>
+                          <Link className="btn btn-primary btn-sm" href={withReturnTo(`/events/${workout.event_id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Event prep</Link>
                         ) : (
-                          <Link className="btn btn-primary btn-sm" href={`/train/${workout.id}`}>Open</Link>
+                          <Link className="btn btn-primary btn-sm" href={withReturnTo(`/train/${workout.id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Open</Link>
                         )}
                         {!workout.is_event_session && date === today && workout.exercises.some((exercise) => exercise.liveSlug) ? (
                           <Link className="btn btn-ghost btn-sm" href={`/live?workout=${workout.id}`}>Camera</Link>
