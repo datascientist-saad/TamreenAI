@@ -9,7 +9,14 @@ import {
   allowedSportsDuringTaper,
 } from "./policy";
 import { applyEventDaysToSessions, proposeTaperAdaptations } from "./adaptation";
-import { buildRaceDayTimeline, buildRacePrepSnapshot, resolveRacePrepPhase } from "./race-prep";
+import {
+  buildRaceDayTimeline,
+  buildRacePrepSnapshot,
+  computeKitProgress,
+  formatLocalStartTime,
+  formatRaceCountdown,
+  resolveRacePrepPhase,
+} from "./race-prep";
 
 const race15k = {
   id: "r1",
@@ -150,6 +157,10 @@ describe("race prep timing", () => {
     const breakfastEvening = evening.find((item) => item.id === "breakfast")?.at;
     assert.ok(breakfastMorning && breakfastEvening);
     assert.notEqual(breakfastMorning, breakfastEvening);
+    const timed = morning.filter((item) => item.at);
+    for (let i = 1; i < timed.length; i += 1) {
+      assert.ok(Date.parse(timed[i - 1]!.at!) <= Date.parse(timed[i]!.at!));
+    }
   });
 
   it("preserves completed checklist items across phase changes", () => {
@@ -170,5 +181,100 @@ describe("race prep timing", () => {
     assert.equal(resolveRacePrepPhase({ today: "2027-04-09", eventDate: "2027-04-10", hasResult: false, hasRecoveryCheckIn: false }), "fuel");
     assert.equal(resolveRacePrepPhase({ today: "2027-04-10", eventDate: "2027-04-10", hasResult: false, hasRecoveryCheckIn: false }), "race_day");
     assert.equal(resolveRacePrepPhase({ today: "2027-04-11", eventDate: "2027-04-10", hasResult: false, hasRecoveryCheckIn: false }), "result");
+  });
+
+  it("formats local start and countdown for a 6:00 a.m. Doha 15K", () => {
+    const startsAt = "2027-04-10T03:00:00.000Z"; // 6:00 a.m. Asia/Qatar
+    const label = formatLocalStartTime(startsAt, "Asia/Qatar");
+    assert.match(label ?? "", /Sat,\s*6:00\s*a\.m\./i);
+
+    const far = formatRaceCountdown({
+      startsAt,
+      eventDate: "2027-04-10",
+      timeZone: "Asia/Qatar",
+      now: new Date("2027-04-08T03:00:00.000Z"),
+    });
+    assert.equal(far.label, "2 days left");
+    assert.equal(far.within24h, false);
+
+    const near = formatRaceCountdown({
+      startsAt,
+      eventDate: "2027-04-10",
+      timeZone: "Asia/Qatar",
+      now: new Date("2027-04-09T20:00:00.000Z"),
+    });
+    assert.equal(near.within24h, true);
+    assert.match(near.label, /\d+h|\d+ min/);
+
+    const missing = formatRaceCountdown({
+      startsAt: null,
+      eventDate: "2027-04-10",
+      timeZone: "Asia/Qatar",
+      now: new Date("2027-04-08T12:00:00.000Z"),
+    });
+    assert.equal(missing.label, "2 days left");
+  });
+
+  it("tracks kit packing as N of 5 and advances next task", () => {
+    const snap = buildRacePrepSnapshot({
+      event: {
+        ...race15k,
+        name: "Doha 15K",
+        startsAt: "2027-04-10T03:00:00.000Z",
+        timezone: "Asia/Qatar",
+      },
+      today: "2027-04-08",
+      checklist: [
+        { id: "collect_bib", label: "Collect bib", section: "prepare", done: true },
+        { id: "confirm_transport", label: "Confirm transport", section: "prepare", done: true },
+        { id: "pack_kit", label: "Pack kit", section: "prepare", done: true },
+        { id: "choose_breakfast", label: "Choose race breakfast", section: "fuel", done: false },
+        { id: "pack_fuel", label: "Pack fuel", section: "fuel", done: false },
+      ],
+    });
+    assert.equal(snap.kitProgress.done, 3);
+    assert.equal(snap.kitProgress.total, 5);
+    assert.equal(snap.kitProgress.label, "3 of 5 packed");
+    assert.equal(snap.kitProgress.next?.id, "pack_fuel");
+    assert.match(snap.countdownLabel, /days left/);
+    assert.match(snap.startLabel ?? "", /a\.m\./i);
+
+    const four = computeKitProgress(
+      snap.checklist.map((item) => (item.id === "pack_fuel" ? { ...item, done: true } : item)),
+    );
+    assert.equal(four.done, 4);
+    assert.equal(four.label, "4 of 5 packed");
+    assert.equal(four.next?.id, "choose_breakfast");
+
+    const ready = computeKitProgress(
+      snap.checklist.map((item) =>
+        item.id === "choose_breakfast" || item.id === "pack_fuel" ? { ...item, done: true } : item,
+      ),
+    );
+    assert.equal(ready.done, 5);
+    assert.equal(ready.label, "Kit ready");
+    assert.equal(ready.ready, true);
+    assert.equal(ready.next, null);
+  });
+
+  it("rebuilds countdown when wave moves to evening while keeping kit done", () => {
+    const morning = buildRacePrepSnapshot({
+      event: { ...race15k, startsAt: "2027-04-10T03:00:00.000Z", timezone: "Asia/Qatar" },
+      today: "2027-04-10",
+      checklist: [
+        { id: "collect_bib", label: "Collect bib", section: "prepare", done: true },
+        { id: "pack_kit", label: "Pack kit", section: "prepare", done: true },
+        { id: "pack_fuel", label: "Pack fuel", section: "fuel", done: true },
+      ],
+    });
+    const evening = buildRacePrepSnapshot({
+      event: { ...race15k, startsAt: "2027-04-10T16:00:00.000Z", timezone: "Asia/Qatar" },
+      today: "2027-04-10",
+      checklist: morning.checklist,
+    });
+    assert.equal(evening.checklist.find((item) => item.id === "collect_bib")?.done, true);
+    assert.equal(evening.checklist.find((item) => item.id === "pack_fuel")?.done, true);
+    assert.ok(evening.timeline.some((item) => item.id === "lunch"));
+    assert.notEqual(morning.startTimeLabel, evening.startTimeLabel);
   });
 });

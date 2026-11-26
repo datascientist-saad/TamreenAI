@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Flag,
+  Heart,
   Plus,
   Sparkles,
   Utensils,
@@ -141,10 +142,17 @@ export function HomeDashboard({
     month: "short",
     timeZone: "UTC",
   });
-  const priorityLabel = (priority?: string | null) =>
-    priority === "primary" ? "A" : priority === "secondary" ? "B" : priority === "practice" ? "C" : "—";
   const todayReturn = "/home";
   const eventHref = (id: string) => withReturnTo(`/events/${id}`, todayReturn);
+
+  const fromList = activeEvents.find((item): item is typeof item & { racePrep: RacePrepSnapshot } =>
+    "racePrep" in item && Boolean(item.racePrep),
+  );
+  const prep: RacePrepSnapshot | null = racePrepEvent?.racePrep ?? fromList?.racePrep ?? null;
+  const prepEventId = racePrepEvent?.id ?? fromList?.id ?? null;
+  const isRaceDay = Boolean(todayEvent) || prep?.phase === "race_day";
+  const showUpcomingRaceRow = Boolean(prep && prepEventId && !isRaceDay && prep.phase !== "recover" && prep.phase !== "result");
+  const isRecoveryDay = prep?.phase === "fuel" && prep.daysUntil === 1 && !todayEvent;
 
   const proposed = Array.isArray(insight?.proposed_changes)
     ? (insight.proposed_changes as Array<Record<string, unknown>>).map((row, index) => ({
@@ -178,6 +186,10 @@ export function HomeDashboard({
     ? `/ai?context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}`
     : "/ai";
 
+  const prepHref = prepEventId
+    ? `/events/${prepEventId}/prep?from=${encodeURIComponent("/home")}`
+    : null;
+
   return (
     <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-4 *:min-w-0 sm:py-5">
       <header className="flex items-start justify-between gap-3">
@@ -197,39 +209,13 @@ export function HomeDashboard({
       <ReadinessCard readiness={readiness} compact />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
 
-      {(() => {
-        const fromList = activeEvents.find((item): item is typeof item & { racePrep: RacePrepSnapshot } =>
-          "racePrep" in item && Boolean(item.racePrep),
-        );
-        const prep: RacePrepSnapshot | null = racePrepEvent?.racePrep ?? fromList?.racePrep ?? null;
-        const prepEventId = racePrepEvent?.id ?? fromList?.id ?? null;
-        if (!prep || !prepEventId) return null;
-        const featured = prep.phase === "race_day" || prep.daysUntil <= 1;
-        return (
-          <RacePrepCard
-            featured={featured}
-            model={{
-              eventId: prepEventId,
-              eventName: prep.eventName,
-              cardTitle: prep.cardTitle,
-              cardSubtitle: prep.cardSubtitle,
-              countdownLabel: prep.countdownLabel,
-              startLabel: prep.startLabel,
-              checklistProgress: prep.checklistProgress,
-              phase: prep.phase,
-              from: "/home",
-            }}
-          />
-        );
-      })()}
-
       <ResumeWorkoutBanner />
 
       {recovery ? (
         <section className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="eyebrow">Post-event recovery</p>
+              <p className="text-sm font-semibold text-ink">Post-event recovery</p>
               <h2 className="mt-1 text-lg font-bold">{recovery.eventName}</h2>
               <p className="caption mt-1">~{recovery.recoveryDays} easy days · through {recovery.endDate}</p>
             </div>
@@ -253,35 +239,68 @@ export function HomeDashboard({
 
       <section className="grid gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-title">{todayEvent ? "Today's event" : "Today's training"}</h2>
-          <Link className="text-sm font-bold text-maroon" href="/plan">Plan</Link>
+          <h2 className="section-title">
+            {todayEvent ? "Today's race" : isRecoveryDay ? "Today's recovery" : "Today's training"}
+          </h2>
+          <Link className="text-sm font-semibold text-maroon" href="/plan">Plan</Link>
         </div>
 
-        {todayEvent ? (
-          <article className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
+        {todayEvent && prep ? (
+          <article className="app-card grid gap-3 p-4">
             <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-maroon-soft text-maroon">
                 <Flag size={18} strokeWidth={1.75} aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-lg font-bold">{todayEvent.name}</p>
-                <p className="caption">
-                  Race · {todayEvent.event_type} · Priority {priorityLabel(todayEvent.priority)}
-                  {todayEvent.phase ? ` · ${todayEvent.phase}` : ""}
+                <p className="mt-1 text-sm text-muted">
+                  {prep.startLabel ?? `${prep.eventDateLabel} · Add start time`}
                 </p>
-                <p className="mt-2 text-sm text-muted">
-                  The event replaces ordinary training today. It counts toward load — not as a missed workout.
+                <p className="mt-1 text-sm font-semibold text-ink" aria-label={prep.countdownAnnounce}>
+                  {prep.countdownLabel}
+                </p>
+                <p className="mt-1 text-sm text-muted">{prep.kitProgress.label}</p>
+              </div>
+            </div>
+            <Link className="btn btn-primary w-full sm:w-auto" href={prepHref ?? eventHref(todayEvent.id)}>
+              Open Race Prep
+            </Link>
+          </article>
+        ) : todayEvent ? (
+          <article className="app-card grid gap-3 p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-maroon-soft text-maroon">
+                <Flag size={18} strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold">{todayEvent.name}</p>
+                <p className="mt-1 text-sm text-muted">
+                  The event replaces ordinary training today.
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Link className="btn btn-primary" href={`/events/${todayEvent.id}/prep?from=${encodeURIComponent("/home")}`}>Open Race Prep</Link>
-              <Link className="btn btn-ghost" href={eventHref(todayEvent.id)}>View race day</Link>
-              <Link className="btn btn-ghost" href="/nutrition">
-                <Utensils size={16} strokeWidth={1.75} aria-hidden />
-                Race nutrition
-              </Link>
+            <Link className="btn btn-primary w-full sm:w-auto" href={`/events/${todayEvent.id}/prep?from=${encodeURIComponent("/home")}`}>
+              Open Race Prep
+            </Link>
+          </article>
+        ) : isRecoveryDay ? (
+          <article className="app-card grid gap-3 p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-maroon-soft text-maroon">
+                <Heart size={18} strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold">Recovery day</p>
+                <p className="mt-1 text-sm text-muted">
+                  Rest and optional gentle mobility only. Race is tomorrow.
+                </p>
+              </div>
             </div>
+            {prepHref ? (
+              <Link className="btn btn-primary w-full sm:w-auto" href={prepHref}>
+                Continue Race Prep
+              </Link>
+            ) : null}
           </article>
         ) : !hasPlan ? (
           <EmptyState
@@ -292,28 +311,15 @@ export function HomeDashboard({
             icon={CalendarDays}
           />
         ) : todayWorkouts.length === 0 ? (
-          <div className="grid gap-3">
-            <EmptyState
-              title="Rest day"
-              body={nextPlanned
-                ? `Next session: ${nextPlanned.title} on ${nextPlanned.scheduled_date} (${sportLabel(nextPlanned.sport)}).`
-                : "Nothing is scheduled. Open the plan to review the week or start a free session."}
-              href={nextPlanned ? withReturnTo(`/train/${nextPlanned.id}`, todayReturn) : "/train"}
-              action={nextPlanned ? "Open next session" : "Log an activity"}
-              icon={CalendarDays}
-            />
-            {activeEvents[0] ? (
-              <Link href={eventHref(activeEvents[0].id)} className="app-card flex items-center gap-3 p-4 transition-colors hover:bg-elevated">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
-                  <Flag size={18} strokeWidth={1.75} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold">Next event · {activeEvents[0].name}</span>
-                  <span className="caption">{activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}</span>
-                </span>
-              </Link>
-            ) : null}
-          </div>
+          <EmptyState
+            title="Rest day"
+            body={nextPlanned
+              ? `Next session: ${nextPlanned.title} on ${nextPlanned.scheduled_date} (${sportLabel(nextPlanned.sport)}).`
+              : "Nothing is scheduled. Open the plan to review the week or start a free session."}
+            href={nextPlanned ? withReturnTo(`/train/${nextPlanned.id}`, todayReturn) : "/train"}
+            action={nextPlanned ? "Open next session" : "Log an activity"}
+            icon={CalendarDays}
+          />
         ) : (
           <div className="grid gap-3">
             {nextWorkout ? (
@@ -357,19 +363,24 @@ export function HomeDashboard({
         )}
       </section>
 
-      {activeEvents[0] && !todayEvent && todayWorkouts.length > 0 ? (
-        <Link href={eventHref(activeEvents[0].id)} className="app-card flex items-center gap-3 p-3 transition-colors hover:bg-elevated">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-maroon-soft text-maroon">
-            <Flag size={16} strokeWidth={1.75} aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-bold">{activeEvents[0].name}</span>
-            <span className="caption">
-              Next event · {activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}
-              {activeEvents[0].phase ? ` · ${activeEvents[0].phase}` : ""}
-            </span>
-          </span>
-        </Link>
+      {showUpcomingRaceRow && prep && prepEventId ? (
+        <RacePrepCard
+          model={{
+            eventId: prepEventId,
+            eventName: prep.eventName,
+            countdownLabel: prep.countdownLabel,
+            countdownAnnounce: prep.countdownAnnounce,
+            startLabel: prep.startLabel,
+            startTimeLabel: prep.startTimeLabel,
+            timeZoneDisplay: prep.timeZoneDisplay,
+            eventDateLabel: prep.eventDateLabel,
+            needsStartTime: prep.needsStartTime,
+            kitProgress: prep.kitProgress,
+            phase: prep.phase,
+            imageUrl: prep.imageUrl,
+            from: "/home",
+          }}
+        />
       ) : null}
 
       {insight && !insightDone ? (
@@ -422,7 +433,7 @@ export function HomeDashboard({
 
       {conflict ? (
         <article className="app-card border-l-2 border-l-danger p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-danger">{conflict.title}</p>
+          <p className="text-sm font-semibold text-danger">{conflict.title}</p>
           <p className="mt-1 text-sm text-muted">{conflict.explanation}</p>
           <Link className="btn btn-primary mt-3 w-full sm:w-auto" href="/conflicts">Resolve</Link>
         </article>
@@ -431,7 +442,7 @@ export function HomeDashboard({
       <section className="app-card grid gap-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-title">This week</h2>
-          <Link className="text-sm font-bold text-maroon" href="/progress">Progress</Link>
+          <Link className="text-sm font-semibold text-maroon" href="/progress">Progress</Link>
         </div>
         <ProgressIndicator
           value={completedWeek}
@@ -451,7 +462,7 @@ export function HomeDashboard({
         <article className="app-card p-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="section-title">WHOOP</h2>
-            <Link className="text-sm font-bold text-maroon" href="/more">Manage</Link>
+            <Link className="text-sm font-semibold text-maroon" href="/more">Manage</Link>
           </div>
           <div className="mt-3">
             <WhoopMetrics metrics={whoop.metrics} compact />
