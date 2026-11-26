@@ -10,9 +10,11 @@ import {
   Sparkles,
 } from "lucide-react";
 import { PageFrame } from "@/components/page";
+import { ResumeWorkoutBanner } from "@/components/resume-workout";
 import { EmptyState } from "@/components/ui/empty-state";
 import { WorkoutCard } from "@/components/ui/workout-card";
 import { SportIcon } from "@/components/ui/sport-icon";
+import { withReturnTo } from "@/lib/navigation";
 import { todayInTimeZone, formatDuration, sportLabel } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 import { workoutHasLiveCamera } from "@/services/live/catalog";
@@ -51,9 +53,10 @@ export default async function TrainHubPage() {
   return (
     <PageFrame
       title="Train"
-      lede="Start a planned session, open live camera, or log free work."
+      lede="Live camera, manual logging, and recent sessions."
       compact
     >
+      <ResumeWorkoutBanner />
       {next ? (
         <section className="grid gap-3">
           <h2 className="section-title">Recommended</h2>
@@ -65,15 +68,16 @@ export default async function TrainHubPage() {
             intensity={next.intensity}
             status={next.status}
             objective={next.objective}
+            href={withReturnTo(`/train/${next.id}`, "/train")}
             actionLabel={next.status === "completed" ? "View session" : "Start planned workout"}
           />
         </section>
       ) : (
         <EmptyState
           title="No planned session today"
-          body="Take a free workout, log endurance work, or open the plan for the week."
-          href="/plan"
-          action="Open plan"
+          body="Log an activity, open live camera, or review the week on Plan."
+          href="/train#log"
+          action="Log an activity"
           icon={Dumbbell}
         />
       )}

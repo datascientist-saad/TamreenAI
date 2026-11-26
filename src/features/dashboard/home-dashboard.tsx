@@ -10,8 +10,10 @@ import {
   Flag,
   Plus,
   Sparkles,
+  Utensils,
 } from "lucide-react";
 import { DemoBanner, SafetyBanner } from "@/components/states";
+import { ResumeWorkoutBanner } from "@/components/resume-workout";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InsightCard } from "@/components/ui/insight-card";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
@@ -20,6 +22,7 @@ import { ReadinessCard } from "@/features/dashboard/readiness-card";
 import { RacePrepCard } from "@/features/events/race-prep-card";
 import { ProposedChangesPanel } from "@/features/plan/proposed-changes";
 import { WhoopMetrics } from "@/features/whoop/metrics";
+import { withReturnTo } from "@/lib/navigation";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
 import type { RacePrepSnapshot } from "@/services/events/race-prep";
 import type { WhoopMetricView } from "@/services/wearables/whoop";
@@ -89,6 +92,7 @@ export type HomeDashboardProps = {
     medicalGuidance?: string;
     recommendations?: Array<{ title: string; detail: string }>;
   } | null;
+  hasPlan?: boolean;
 };
 
 export function HomeDashboard({
@@ -107,6 +111,7 @@ export function HomeDashboard({
   events = [],
   racePrepEvent = null,
   recovery = null,
+  hasPlan = true,
 }: HomeDashboardProps) {
   const router = useRouter();
   const [pendingInsight, startInsight] = useTransition();
@@ -120,10 +125,16 @@ export function HomeDashboard({
   const weekMinutes = weekWorkouts.reduce((sum, w) => sum + (w.duration_min ?? 0), 0);
   const todayEvent = activeEvents.find((item) => item.days === 0) ?? null;
   const eventSessions = todayWorkouts.filter((w) => w.intensity === "race" || /event|race|marathon|triathlon|ironman/i.test(w.title));
+  const orderedToday = [...todayWorkouts].sort((a, b) => {
+    const aDone = a.status === "completed" ? 1 : 0;
+    const bDone = b.status === "completed" ? 1 : 0;
+    return aDone - bDone;
+  });
   const primaryToday = todayEvent || eventSessions.length
     ? (eventSessions[0] ?? null)
-    : (todayWorkouts.find((w) => w.status !== "completed") ?? todayWorkouts[0] ?? null);
+    : (orderedToday.find((w) => w.status !== "completed") ?? orderedToday[0] ?? null);
   const nextWorkout = primaryToday;
+  const nextPlanned = weekWorkouts.find((w) => w.scheduled_date > today && w.status !== "completed") ?? null;
   const dateLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
@@ -132,6 +143,8 @@ export function HomeDashboard({
   });
   const priorityLabel = (priority?: string | null) =>
     priority === "primary" ? "A" : priority === "secondary" ? "B" : priority === "practice" ? "C" : "—";
+  const todayReturn = "/home";
+  const eventHref = (id: string) => withReturnTo(`/events/${id}`, todayReturn);
 
   const proposed = Array.isArray(insight?.proposed_changes)
     ? (insight.proposed_changes as Array<Record<string, unknown>>).map((row, index) => ({
@@ -161,6 +174,10 @@ export function HomeDashboard({
       }]
       : [];
 
+  const coachHref = insight
+    ? `/ai?context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}`
+    : "/ai";
+
   return (
     <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-4 *:min-w-0 sm:py-5">
       <header className="flex items-start justify-between gap-3">
@@ -170,14 +187,14 @@ export function HomeDashboard({
           {isDemo ? <div className="mt-2"><DemoBanner /></div> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <Link href="/notifications" className="btn btn-ghost btn-sm" aria-label="Notifications">
+          <Link href="/notifications" className="btn btn-ghost btn-sm min-h-11 min-w-11" aria-label="Notifications">
             <Bell size={16} strokeWidth={1.75} aria-hidden />
           </Link>
           <Link href="/profile" className="btn btn-ghost btn-sm">Profile</Link>
         </div>
       </header>
 
-      <ReadinessCard readiness={readiness} />
+      <ReadinessCard readiness={readiness} compact />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
 
       {(() => {
@@ -206,6 +223,8 @@ export function HomeDashboard({
         );
       })()}
 
+      <ResumeWorkoutBanner />
+
       {recovery ? (
         <section className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
           <div className="flex items-start justify-between gap-2">
@@ -214,7 +233,7 @@ export function HomeDashboard({
               <h2 className="mt-1 text-lg font-bold">{recovery.eventName}</h2>
               <p className="caption mt-1">~{recovery.recoveryDays} easy days · through {recovery.endDate}</p>
             </div>
-            <Link className="btn btn-ghost btn-sm" href={`/events/${recovery.eventId}`}>Open</Link>
+            <Link className="btn btn-ghost btn-sm" href={eventHref(recovery.eventId)}>Open</Link>
           </div>
           {recovery.medicalGuidance ? (
             <p className="text-sm text-danger">{recovery.medicalGuidance}</p>
@@ -237,6 +256,7 @@ export function HomeDashboard({
           <h2 className="section-title">{todayEvent ? "Today's event" : "Today's training"}</h2>
           <Link className="text-sm font-bold text-maroon" href="/plan">Plan</Link>
         </div>
+
         {todayEvent ? (
           <article className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
             <div className="flex items-start gap-3">
@@ -246,7 +266,7 @@ export function HomeDashboard({
               <div className="min-w-0 flex-1">
                 <p className="text-lg font-bold">{todayEvent.name}</p>
                 <p className="caption">
-                  {todayEvent.event_type} · Priority {priorityLabel(todayEvent.priority)}
+                  Race · {todayEvent.event_type} · Priority {priorityLabel(todayEvent.priority)}
                   {todayEvent.phase ? ` · ${todayEvent.phase}` : ""}
                 </p>
                 <p className="mt-2 text-sm text-muted">
@@ -256,43 +276,112 @@ export function HomeDashboard({
             </div>
             <div className="flex flex-wrap gap-2">
               <Link className="btn btn-primary" href={`/events/${todayEvent.id}/prep?from=${encodeURIComponent("/home")}`}>Open Race Prep</Link>
-              <Link className="btn btn-ghost" href="/nutrition">Race nutrition</Link>
+              <Link className="btn btn-ghost" href={eventHref(todayEvent.id)}>View race day</Link>
+              <Link className="btn btn-ghost" href="/nutrition">
+                <Utensils size={16} strokeWidth={1.75} aria-hidden />
+                Race nutrition
+              </Link>
             </div>
           </article>
-        ) : todayWorkouts.length === 0 ? (
+        ) : !hasPlan ? (
           <EmptyState
-            title="Rest day"
-            body="Nothing is scheduled. Open the plan to review the week or start a free session."
-            href="/train"
-            action="Open Train"
+            title="Create your first plan"
+            body="Tamreen builds a hybrid week from your sports, days, and goal event."
+            href="/onboarding"
+            action="Create your first plan"
             icon={CalendarDays}
           />
+        ) : todayWorkouts.length === 0 ? (
+          <div className="grid gap-3">
+            <EmptyState
+              title="Rest day"
+              body={nextPlanned
+                ? `Next session: ${nextPlanned.title} on ${nextPlanned.scheduled_date} (${sportLabel(nextPlanned.sport)}).`
+                : "Nothing is scheduled. Open the plan to review the week or start a free session."}
+              href={nextPlanned ? withReturnTo(`/train/${nextPlanned.id}`, todayReturn) : "/train"}
+              action={nextPlanned ? "Open next session" : "Log an activity"}
+              icon={CalendarDays}
+            />
+            {activeEvents[0] ? (
+              <Link href={eventHref(activeEvents[0].id)} className="app-card flex items-center gap-3 p-4 transition-colors hover:bg-elevated">
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
+                  <Flag size={18} strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold">Next event · {activeEvents[0].name}</span>
+                  <span className="caption">{activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}</span>
+                </span>
+              </Link>
+            ) : null}
+          </div>
         ) : (
-          <ul className="grid gap-3">
-            {todayWorkouts.map((workout) => (
-              <li key={workout.id}>
-                <WorkoutCard
-                  id={workout.id}
-                  sport={workout.sport}
-                  title={workout.title}
-                  durationMin={workout.duration_min}
-                  intensity={workout.intensity}
-                  status={workout.status}
-                  objective={workout.objective}
-                  actionLabel={workout.status === "completed" ? "View" : workout.camera ? "Start · camera ready" : "Start"}
-                />
-              </li>
-            ))}
-          </ul>
+          <div className="grid gap-3">
+            {nextWorkout ? (
+              <WorkoutCard
+                id={nextWorkout.id}
+                sport={nextWorkout.sport}
+                title={nextWorkout.title}
+                durationMin={nextWorkout.duration_min}
+                intensity={nextWorkout.intensity}
+                status={nextWorkout.status}
+                objective={nextWorkout.objective}
+                href={withReturnTo(`/train/${nextWorkout.id}`, todayReturn)}
+                actionLabel={
+                  nextWorkout.status === "completed"
+                    ? "View"
+                    : nextWorkout.camera
+                      ? "Start workout · camera ready"
+                      : "Start workout"
+                }
+              />
+            ) : null}
+            {orderedToday.length > 1 ? (
+              <ul className="app-card divide-y divide-line px-2 py-1">
+                {orderedToday.map((workout, index) => (
+                  <li key={workout.id}>
+                    <Link
+                      href={withReturnTo(`/train/${workout.id}`, todayReturn)}
+                      className="flex min-h-12 items-center gap-3 px-2 py-2.5"
+                    >
+                      <span className="grid h-8 w-8 place-items-center rounded-full bg-elevated text-xs font-bold text-muted">{index + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">{workout.title}</span>
+                        <span className="caption">{sportLabel(workout.sport)}{workout.status === "completed" ? " · Done" : ""}</span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         )}
       </section>
 
+      {activeEvents[0] && !todayEvent && todayWorkouts.length > 0 ? (
+        <Link href={eventHref(activeEvents[0].id)} className="app-card flex items-center gap-3 p-3 transition-colors hover:bg-elevated">
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-maroon-soft text-maroon">
+            <Flag size={16} strokeWidth={1.75} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold">{activeEvents[0].name}</span>
+            <span className="caption">
+              Next event · {activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}
+              {activeEvents[0].phase ? ` · ${activeEvents[0].phase}` : ""}
+            </span>
+          </span>
+        </Link>
+      ) : null}
+
       {insight && !insightDone ? (
         <section className="grid gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="section-title">Pending plan changes</p>
+            <Link className="btn btn-ghost btn-sm" href={coachHref}>Ask AI Coach</Link>
+          </div>
           <InsightCard
             title={insight.title}
             body={insight.body}
-            href="/ai"
+            href={coachHref}
             action="Ask coach"
           />
           <button
@@ -358,21 +447,6 @@ export function HomeDashboard({
         <WeekDots today={today} workouts={weekWorkouts} />
       </section>
 
-      {activeEvents[0] && !todayEvent ? (
-        <Link href={`/events/${activeEvents[0].id}`} className="app-card flex items-center gap-3 p-4 transition-colors hover:bg-elevated">
-          <span className="grid h-10 w-10 place-items-center rounded-full bg-maroon-soft text-maroon">
-            <Flag size={18} strokeWidth={1.75} aria-hidden />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-bold">{activeEvents[0].name}</span>
-            <span className="caption">
-              {activeEvents[0].days} days · Priority {priorityLabel(activeEvents[0].priority)}
-              {activeEvents[0].phase ? ` · ${activeEvents[0].phase}` : ""}
-            </span>
-          </span>
-        </Link>
-      ) : null}
-
       {whoop ? (
         <article className="app-card p-4">
           <div className="flex items-center justify-between gap-3">
@@ -386,14 +460,18 @@ export function HomeDashboard({
       ) : null}
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {nextWorkout ? (
-          <QuickAction href={`/train/${nextWorkout.id}`} icon={Sparkles} label="Start workout" />
+        {nextWorkout && !todayEvent ? (
+          <QuickAction href={withReturnTo(`/train/${nextWorkout.id}`, todayReturn)} icon={Sparkles} label="Start workout" />
         ) : (
           <QuickAction href="/train" icon={Sparkles} label="Train" />
         )}
         <QuickAction href="/recovery?tab=checkin" icon={ClipboardCheck} label="Check-in" />
         <QuickAction href="/train#log" icon={Plus} label="Log activity" />
-        <QuickAction href="/health" icon={CalendarDays} label="Health" />
+        {todayEvent || nextWorkout ? (
+          <QuickAction href="/nutrition" icon={Utensils} label="Fueling" />
+        ) : (
+          <QuickAction href="/plan?tab=events" icon={Flag} label="Events" />
+        )}
       </section>
     </main>
   );
@@ -437,8 +515,8 @@ function WeekDots({
         return (
           <Link
             key={date}
-            href={rows[0] ? `/train/${rows[0].id}` : "/plan"}
-            className="grid place-items-center gap-1 rounded-[var(--radius-sm)] py-1.5 text-center hover:bg-elevated"
+            href={rows[0] ? withReturnTo(`/train/${rows[0].id}`, "/home") : `/plan?day=${date}`}
+            className="grid min-h-11 place-items-center gap-1 rounded-[var(--radius-sm)] py-1.5 text-center hover:bg-elevated"
             title={rows.length ? rows.map((r) => r.title).join(", ") : "Rest"}
           >
             <span className="text-[10px] font-bold uppercase text-muted">{label}</span>

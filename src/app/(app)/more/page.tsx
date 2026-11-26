@@ -24,39 +24,28 @@ function relationSlug(value: unknown): string {
 
 const journeyGroups = [
   {
-    label: "Body & progress",
+    label: "Fuel & coach",
     items: [
-      ["/recovery", "Recovery check-in", "Readiness, VO₂ max, WHOOP"],
-      ["/health", "Health", "Measurements and fitness metrics"],
       ["/nutrition", "Nutrition", "Fueling and hydration"],
-      ["/progress", "Performance", "Tamreen score by sport"],
-      ["/records", "Records", "PRs, baselines, Strava"],
-      ["/analytics", "Analytics", "Trends over time"],
-      ["/weekly", "Weekly review", "What the last week taught"],
-    ],
-  },
-  {
-    label: "Train",
-    items: [
-      ["/calendar", "Calendar", "Week at a glance"],
-      ["/log/run", "Log a run", "Manual endurance entry"],
-      ["/log/ride", "Log a ride", "Power and FTP"],
-      ["/log/swim", "Log a swim", "Pace and distance"],
       ["/ai", "AI coach", "Ask why the plan looks like this"],
-    ],
-  },
-  {
-    label: "Compete",
-    items: [
-      ["/events", "Events", "Race countdown and prep"],
-      ["/triathlon", "Triathlon", "Brick and race focus"],
     ],
   },
   {
     label: "Account",
     items: [
+      ["/profile", "Profile", "Portrait, name, sports"],
+      ["/settings", "Settings", "Units, theme, privacy, export"],
       ["/notifications", "Notifications", "Alerts and reminders"],
-      ["/settings", "Settings", "Units, theme, privacy"],
+      ["/settings#export", "Data export", "JSON and CSV downloads"],
+    ],
+  },
+  {
+    label: "Also available",
+    items: [
+      ["/events", "Events", "Race countdown and prep"],
+      ["/triathlon", "Triathlon", "Brick and race focus"],
+      ["/health", "Health", "Measurements and fitness metrics"],
+      ["/recovery", "Recovery", "Check-in and body metrics"],
     ],
   },
 ] as const;
@@ -107,7 +96,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
   });
 
   return (
-    <PageFrame title="Account & shortcuts" lede="Profile, connections, and secondary journeys." compact>
+    <PageFrame title="More" lede="Nutrition, AI Coach, profile, settings, and data export." compact>
       <Link href="/profile" className="app-card grid grid-cols-[auto_1fr] items-center gap-4 p-4">
         <AvatarMark name={profile?.full_name || "Athlete"} src={portrait.src} size={64} />
         <span>

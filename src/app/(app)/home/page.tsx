@@ -61,6 +61,7 @@ export default async function HomePage() {
       insight={data.insight}
       conflict={data.conflicts[0] ?? null}
       recovery={data.recovery}
+      hasPlan={Boolean(data.plan)}
       whoop={
         data.whoop.connection.status === "connected"
         || data.whoop.connection.status === "error"

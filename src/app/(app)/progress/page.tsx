@@ -72,7 +72,8 @@ export default async function ProgressPage() {
       actions={
         <div className="flex flex-wrap gap-2">
           <Link className="btn btn-ghost btn-sm" href="/analytics">Analytics</Link>
-          <Link className="btn btn-ghost btn-sm" href="/records">Records</Link>
+          <Link className="btn btn-ghost btn-sm" href="/records">History</Link>
+          <Link className="btn btn-ghost btn-sm" href="/recovery">Recovery</Link>
           <Link className="btn btn-ghost btn-sm" href="/weekly">Weekly</Link>
         </div>
       }

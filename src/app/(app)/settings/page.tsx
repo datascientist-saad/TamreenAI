@@ -59,8 +59,8 @@ export default async function SettingsPage() {
         <h2 className="font-bold">Privacy</h2>
         <p className="text-sm text-muted">Coaches see training only after you accept their link. Gym cameras do not use facial recognition. Live recordings stay in a private bucket.</p>
       </section>
-      <section className="app-card p-4">
-        <h2 className="font-bold">Data</h2>
+      <section id="export" className="app-card scroll-mt-24 p-4">
+        <h2 className="font-bold">Data export</h2>
         <p className="text-sm text-muted">Export a branded performance report, or download raw JSON/CSV for your records.</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <a className="btn btn-primary" href="/api/me/report" target="_blank" rel="noreferrer">Export Athlete Report</a>

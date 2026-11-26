@@ -48,6 +48,9 @@ export function ForgotForm() {
         {message ? <p className="text-sm">{message}</p> : null}
         <PrimaryButton pending={pending} idle="Send reset link" busy="Sending…" />
       </form>
+      <div className="mt-4">
+        <Link className={accountLinkClass} href="/login">Back to sign in</Link>
+      </div>
     </Shell>
   );
 }
@@ -88,6 +91,9 @@ export function ResetForm() {
         {error ? <p className="text-sm text-live" role="alert">{error}</p> : null}
         <PrimaryButton pending={pending} idle="Update password" busy="Updating…" />
       </form>
+      <div className="mt-4">
+        <Link className={accountLinkClass} href="/login">Back to sign in</Link>
+      </div>
     </Shell>
   );
 }
@@ -229,6 +235,8 @@ function AuthCard({ mode, nextPath }: { mode: "login" | "signup"; nextPath?: str
 function PasswordField({ label, name, autoComplete, hint }: { label: string; name: string; autoComplete: string; hint?: string }) {
   const [visible, setVisible] = useState(false);
   const id = `auth-${name}`;
+  const showLabel = `Show ${label.toLowerCase()}`;
+  const hideLabel = `Hide ${label.toLowerCase()}`;
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-3">
@@ -238,6 +246,7 @@ function PasswordField({ label, name, autoComplete, hint }: { label: string; nam
           type="button"
           aria-controls={id}
           aria-pressed={visible}
+          aria-label={visible ? hideLabel : showLabel}
           onClick={() => setVisible((current) => !current)}
         >
           {visible ? "Hide" : "Show"}

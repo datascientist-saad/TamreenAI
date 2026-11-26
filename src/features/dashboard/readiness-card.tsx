@@ -60,9 +60,9 @@ export function ReadinessCard({
       ) : null}
 
       {score == null ? (
-        <Link className="btn btn-primary mt-4 w-full" href="/recovery?tab=checkin">Daily check-in</Link>
+        <Link className="btn btn-primary mt-4 w-full" href="/recovery?tab=checkin">Complete a check-in</Link>
       ) : (
-        <Link className="btn btn-ghost mt-4 w-full" href="/recovery">Body details</Link>
+        <Link className="btn btn-ghost mt-4 w-full" href="/recovery">Recovery details</Link>
       )}
     </article>
   );
