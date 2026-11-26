@@ -1,67 +1,193 @@
-import { Sparkles } from "lucide-react";
-import { BackLink } from "@/components/back-link";
-import { PageFrame } from "@/components/page";
 import { CoachBox } from "@/features/ai/coach-box";
-import { ExplainList } from "@/components/states";
-import { sanitizeReturnTo } from "@/lib/navigation";
+import { buildCoachStarters } from "@/features/ai/starters";
+import type { CoachContextItem } from "@/features/ai/types";
+import { buildPlanHref, sanitizeReturnTo, weekStartMonday } from "@/lib/navigation";
+import { todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 
 export default async function CoachPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; context?: string; body?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    context?: string;
+    body?: string;
+    kind?: string;
+    id?: string;
+    workoutId?: string;
+    eventId?: string;
+  }>;
 }) {
   const query = await searchParams;
   const returnTo = sanitizeReturnTo(query.from);
   const { supabase, user } = await requireUser();
-  const { data: history } = await supabase
-    .from("ai_recommendations")
-    .select("id, title, body, status, factors, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(8);
-  const contextNote = query.context
-    ? `About: ${query.context}${query.body ? ` — ${query.body}` : ""}`
+
+  const [{ data: athlete }, { data: pending }, { data: events }, { data: workouts }] = await Promise.all([
+    supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("ai_recommendations")
+      .select("id, title, body, status")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("events")
+      .select("id, name, starts_on")
+      .eq("owner_user_id", user.id)
+      .is("deleted_at", null)
+      .neq("status", "cancelled")
+      .order("starts_on")
+      .limit(8),
+    supabase
+      .from("workouts")
+      .select("id, title, scheduled_date, sport, status")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .order("scheduled_date")
+      .limit(14),
+  ]);
+
+  const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
+  const week = weekStartMonday(today);
+  const weekHref = buildPlanHref({ week, tab: "schedule" });
+  const upcomingEvent = (events ?? []).find((event) => event.starts_on >= today) ?? null;
+  const todays = (workouts ?? []).filter((row) => row.scheduled_date === today);
+  const upcomingWorkouts = (workouts ?? []).filter((row) => row.scheduled_date >= today).slice(0, 5);
+
+  const contextOptions: CoachContextItem[] = [
+    {
+      kind: "week",
+      id: week,
+      label: "This week’s plan",
+      detail: `Week of ${week}`,
+    },
+    ...upcomingWorkouts.map((workout) => ({
+      kind: "workout" as const,
+      id: workout.id,
+      label: workout.title,
+      detail: `${workout.scheduled_date} · ${workout.sport}`,
+    })),
+    ...((events ?? [])
+      .filter((event) => event.starts_on >= today)
+      .slice(0, 3)
+      .map((event) => ({
+        kind: "event" as const,
+        id: event.id,
+        label: event.name,
+        detail: `Starts ${event.starts_on}`,
+      }))),
+  ];
+
+  if (pending) {
+    contextOptions.unshift({
+      kind: "change",
+      id: pending.id,
+      label: pending.title,
+      detail: pending.body.slice(0, 120),
+    });
+  }
+
+  const initialContext = resolveInitialContext(query, contextOptions, pending, upcomingEvent);
+
+  const starters = buildCoachStarters({
+    hasPlanChange: Boolean(pending),
+    eventName: upcomingEvent?.name ?? null,
+    todayWorkoutTitle: todays[0]?.title ?? null,
+  });
+
+  const racePrepHref = upcomingEvent
+    ? `/events/${upcomingEvent.id}/prep?from=${encodeURIComponent(returnTo || "/ai")}`
     : null;
+
   return (
-    <PageFrame
-      title="AI Coach"
-      lede="Ask about today's plan, recovery, or event prep. Plan changes stay pending until you accept."
-      compact
-      actions={<BackLink from={returnTo} kind="generic" label="Back to Today" />}
-    >
-      {contextNote ? (
-        <p className="rounded-[var(--radius-md)] border border-line bg-elevated px-3 py-2 text-sm" role="status">
-          {contextNote}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        {[
-          ["Why was my plan changed?", "/ai"],
-          ["How should I approach today's workout?", "/ai"],
-          ["Why is my recovery lower?", "/ai"],
-        ].map(([label]) => (
-          <span key={label} className="chip bg-maroon-soft text-maroon normal-case tracking-normal">
-            <Sparkles size={12} strokeWidth={1.75} aria-hidden />
-            {label}
-          </span>
-        ))}
-      </div>
-      <CoachBox />
-      <ul className="grid gap-2">
-        {(history ?? []).map((item) => (
-          <li key={item.id} className="app-card p-4">
-            <p className="caption uppercase">{item.status}</p>
-            <h2 className="mt-1 font-bold">{item.title}</h2>
-            <p className="mt-1 text-sm text-muted line-clamp-3">{item.body}</p>
-            <details className="mt-2">
-              <summary className="cursor-pointer text-sm font-semibold text-maroon">Expand</summary>
-              <p className="mt-2 text-sm">{item.body}</p>
-              <ExplainList factors={Array.isArray(item.factors) ? item.factors as Array<{ label: string; detail: string }> : []} />
-            </details>
-          </li>
-        ))}
-      </ul>
-    </PageFrame>
+    <main className="px-0 py-0 md:px-4 md:py-4">
+      <CoachBox
+        returnTo={returnTo}
+        starters={starters}
+        contextOptions={contextOptions}
+        initialContext={initialContext}
+        weekHref={weekHref}
+        racePrepHref={racePrepHref}
+      />
+    </main>
   );
+}
+
+function resolveInitialContext(
+  query: {
+    context?: string;
+    body?: string;
+    kind?: string;
+    id?: string;
+    workoutId?: string;
+    eventId?: string;
+  },
+  options: CoachContextItem[],
+  pending: { id: string; title: string; body: string } | null,
+  upcomingEvent: { id: string; name: string; starts_on: string } | null,
+): CoachContextItem | null {
+  const kind = query.kind?.trim();
+  const id = query.id?.trim() || query.workoutId?.trim() || query.eventId?.trim();
+
+  if (kind && id) {
+    const match = options.find((item) => item.kind === kind && item.id === id);
+    if (match) return match;
+  }
+
+  if (query.workoutId) {
+    const match = options.find((item) => item.kind === "workout" && item.id === query.workoutId);
+    if (match) return match;
+  }
+
+  if (query.eventId) {
+    const match = options.find((item) => item.kind === "event" && item.id === query.eventId);
+    if (match) return match;
+  }
+
+  if (query.context?.trim()) {
+    const title = query.context.trim();
+    if (pending && pending.title === title) {
+      return {
+        kind: "change",
+        id: pending.id,
+        label: pending.title,
+        detail: query.body?.trim() || pending.body.slice(0, 120),
+      };
+    }
+
+    const named = options.find((item) => item.label === title);
+    if (named) return named;
+
+    if (/change|proposal|moved|adjust/i.test(title) && pending) {
+      return {
+        kind: "change",
+        id: pending.id,
+        label: pending.title,
+        detail: query.body?.trim() || pending.body.slice(0, 120),
+      };
+    }
+
+    if (upcomingEvent && title.toLowerCase().includes(upcomingEvent.name.toLowerCase())) {
+      return {
+        kind: "event",
+        id: upcomingEvent.id,
+        label: upcomingEvent.name,
+        detail: `Starts ${upcomingEvent.starts_on}`,
+      };
+    }
+
+    return {
+      kind:
+        kind === "workout" || kind === "event" || kind === "week" || kind === "change"
+          ? kind
+          : "change",
+      id,
+      label: title,
+      detail: query.body?.trim() || undefined,
+    };
+  }
+
+  return null;
 }

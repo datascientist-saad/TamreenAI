@@ -1530,13 +1530,20 @@ export async function clearAvatar() {
   return { ok: true as const };
 }
 
-export async function askCoach(question: string) {
+export async function askCoach(
+  question: string,
+  context?: { kind?: string; id?: string; label?: string; detail?: string } | null,
+) {
   const { supabase, user } = await limit("coach", 40, 3600);
   const ctx = await contextFor(user.id, supabase);
   const today = ctx.startDate;
+  const contextKind = context?.kind?.trim() || null;
+  const contextId = context?.id?.trim() || null;
   const [{ data: profile }, { data: workout }, { data: readinessRow }, { data: conflicts }, { data: nutrition }, { data: health }, { data: prefs }] = await Promise.all([
     supabase.from("profiles").select("full_name").eq("id", user.id).single(),
-    supabase.from("workouts").select("*").eq("user_id", user.id).eq("scheduled_date", today).is("deleted_at", null).limit(1).maybeSingle(),
+    contextKind === "workout" && contextId
+      ? supabase.from("workouts").select("*").eq("user_id", user.id).eq("id", contextId).is("deleted_at", null).maybeSingle()
+      : supabase.from("workouts").select("*").eq("user_id", user.id).eq("scheduled_date", today).is("deleted_at", null).limit(1).maybeSingle(),
     supabase.from("readiness_scores").select("*").eq("user_id", user.id).order("scored_on", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("training_conflicts").select("title, explanation, severity").eq("user_id", user.id).eq("status", "open").limit(5),
     supabase.from("nutrition_targets").select("calories_kcal, protein_g, day_type, explanation").eq("user_id", user.id).eq("target_date", today).maybeSingle(),
@@ -1573,7 +1580,14 @@ export async function askCoach(question: string) {
     consistency: null,
     question,
   });
+  const contextFactor = context?.label
+    ? [{
+      label: "Attached context",
+      detail: [context.kind, context.label, context.detail].filter(Boolean).join(" · "),
+    }]
+    : [];
   const extraFactors = [
+    ...contextFactor,
     nutrition
       ? { label: "Nutrition target", detail: `${nutrition.calories_kcal} kcal (${nutrition.day_type}). ${nutrition.explanation}` }
       : { label: "Nutrition target", detail: "No target for today yet." },
@@ -1587,7 +1601,7 @@ export async function askCoach(question: string) {
   ];
   const factors = [...answer.factors, ...extraFactors];
   const enriched = { ...answer, factors };
-  await supabase.from("ai_recommendations").insert({
+  const { data: inserted, error } = await supabase.from("ai_recommendations").insert({
     user_id: user.id,
     kind: "coach",
     title: enriched.title,
@@ -1595,9 +1609,12 @@ export async function askCoach(question: string) {
     factors,
     proposed_changes: enriched.proposedChanges,
     status: enriched.proposedChanges.length ? "pending" : "accepted",
-  });
+  }).select("id").single();
+  if (error) throw new Error(error.message);
   revalidatePath("/ai");
-  return enriched;
+  revalidatePath("/home");
+  revalidatePath("/plan");
+  return { ...enriched, id: inserted?.id };
 }
 
 export async function saveLiveSession(input: {

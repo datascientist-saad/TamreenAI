@@ -56,7 +56,7 @@ export function PlanProposedChanges({
       detail: factors.map((factor) => `${factor.label}: ${factor.detail}`).join(" "),
     }];
 
-  const coachHref = `/ai?context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}`;
+  const coachHref = `/ai?kind=change&id=${encodeURIComponent(insight.id)}&context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}&from=${encodeURIComponent(returnTo)}`;
 
   return (
     <section className="app-card grid gap-3 p-4">
@@ -65,7 +65,7 @@ export function PlanProposedChanges({
           <p className="eyebrow">Proposed changes</p>
           <h2 className="font-bold">{insight.title}</h2>
         </div>
-        <Link className="btn btn-ghost btn-sm" href={coachHref}>Ask AI Coach</Link>
+        <Link className="btn btn-ghost btn-sm" href={coachHref}>Ask about this change</Link>
       </div>
       <ProposedChangesPanel
         proposalId={insight.id}
