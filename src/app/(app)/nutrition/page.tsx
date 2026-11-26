@@ -77,7 +77,8 @@ export default async function NutritionPage({
         {prefs?.allergies?.length ? ` · Allergies: ${prefs.allergies.join(", ")}` : ""}
       </p>
 
-      <section className="app-card grid gap-4 p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
+      <section className="app-card grid gap-4 p-4 lg:sticky lg:top-4">
         <div className="flex items-end justify-between gap-3">
           <div>
             <p className="eyebrow">Calories</p>
@@ -101,6 +102,7 @@ export default async function NutritionPage({
           <p className="text-sm text-muted">No target yet. Recalculate after height, weight, and date of birth are saved.</p>
         )}
       </section>
+      <div className="grid gap-4">
 
       {target ? (
         <details className="app-card p-4 text-sm">
@@ -189,6 +191,8 @@ export default async function NutritionPage({
           );
         })}
       </section>
+      </div>
+      </div>
     </PageFrame>
   );
 }

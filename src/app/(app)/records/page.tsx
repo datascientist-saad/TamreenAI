@@ -212,7 +212,7 @@ export default async function RecordsPage() {
           {highlight.length > 0 && (
             <section className="grid gap-3">
               <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted">Highlight board</h2>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {highlight.map((item, index) => {
                   const config = SPORT_CONFIG[item.sport] ?? { label: item.sport, color: "#8a1538", bg: "rgba(138,21,56,0.06)" };
                   return (

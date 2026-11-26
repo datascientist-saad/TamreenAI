@@ -58,7 +58,7 @@ export default async function ProfilePage() {
   ].filter((item): item is string => Boolean(item));
 
   return (
-    <main className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-6">
+    <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-6 *:min-w-0 md:max-w-6xl md:gap-5 md:px-6 lg:px-8">
       <section className="overflow-hidden rounded-[2rem] bg-maroon text-white shadow-[var(--shadow)]">
         <div className="grid gap-6 p-6 md:grid-cols-[auto_1fr] md:items-center md:p-8">
           <PortraitEditor userId={user.id} name={name} src={portrait.src} source={portrait.source} googleAvailable={googleLinked} />

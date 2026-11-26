@@ -94,15 +94,15 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
+    <div className="min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-r border-line bg-card p-4 md:flex">
         <Link href="/home" aria-label="Tamreen Today" className="btn btn-ghost justify-start border-transparent px-2">
           <Wordmark />
         </Link>
-        <nav className="grid min-h-0 gap-4 overflow-y-auto" aria-label="Primary">
+        <nav className="grid min-h-0 gap-3 overflow-y-auto pr-1" aria-label="Primary">
           {sideGroups.map((group) => (
             <div key={group.label} className="grid gap-0.5">
-              <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group.label}</p>
+              <p className="px-3 pb-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group.label}</p>
               {group.items.map(([href, label]) => (
                 <SideLink key={href} href={href} label={label} pathname={pathname} />
               ))}
@@ -132,7 +132,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <div className="relative z-0 min-w-0 safe-bottom md:pb-0">
+      <div className="relative z-0 min-w-0 safe-bottom">
         <header className="sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-line bg-card/95 px-3 py-2 backdrop-blur safe-top md:hidden pointer-events-auto">
           <Link
             href="/home"
@@ -245,7 +245,7 @@ function SideLink({ href, label, pathname }: { href: string; label: string; path
     <Link
       href={href}
       className={cn(
-        "rounded-[var(--radius-sm)] px-3 py-2 text-sm font-semibold transition-colors",
+        "rounded-[var(--radius-sm)] px-3 py-1.5 text-sm font-semibold transition-colors",
         active ? "bg-maroon text-white" : "text-muted hover:bg-elevated hover:text-ink",
       )}
       aria-current={active ? "page" : undefined}

@@ -129,7 +129,7 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
       ) : null}
 
       {tab === "overview" ? (
-        <section className="grid gap-2 sm:grid-cols-2">
+        <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           <Link href="/health" className="app-card p-4 transition-colors hover:bg-elevated">
             <h2 className="section-title">Health</h2>
             <p className="mt-1 text-sm text-muted">Manual metrics with last-updated timestamps.</p>
@@ -137,6 +137,10 @@ export default async function RecoveryPage({ searchParams }: { searchParams: Pro
           <Link href="/nutrition" className="app-card p-4 transition-colors hover:bg-elevated">
             <h2 className="section-title">Nutrition</h2>
             <p className="mt-1 text-sm text-muted">Calories, macros, and meal logging.</p>
+          </Link>
+          <Link href="/weekly" className="app-card p-4 transition-colors hover:bg-elevated sm:col-span-2 xl:col-span-1">
+            <h2 className="section-title">Weekly review</h2>
+            <p className="mt-1 text-sm text-muted">Compare planned vs completed work and recovery.</p>
           </Link>
         </section>
       ) : null}

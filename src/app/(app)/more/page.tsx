@@ -121,7 +121,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
           <h2 className="font-bold">Connections</h2>
           <p className="text-sm text-muted">Wearables and account links stay together.</p>
         </div>
-        <div className="grid gap-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div className="rounded-2xl bg-paper p-3">
             <h3 className="text-sm font-bold">WHOOP</h3>
             <div className="mt-2">
@@ -143,7 +143,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
               />
             </div>
           </div>
-          <div className="rounded-2xl bg-paper p-3">
+          <div className="rounded-2xl bg-paper p-3 md:col-span-2 xl:col-span-1">
             <h3 className="text-sm font-bold">Google</h3>
             <div className="mt-2">
               <GoogleLinkButton alreadyLinked={googleLinked} />
@@ -155,7 +155,7 @@ export default async function MorePage({ searchParams }: { searchParams: Promise
       {journeyGroups.map((group) => (
         <section key={group.label} className="grid gap-2">
           <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">{group.label}</h2>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {group.items.map(([href, label, hint]) => (
               <li key={href}>
                 <Link className="app-card block px-4 py-3 hover:bg-paper" href={href}>

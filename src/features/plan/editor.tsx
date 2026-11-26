@@ -206,9 +206,9 @@ export function PlanEditor({
 
   return (
     <div className="grid gap-4">
-      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-paper/95 px-4 py-2.5 backdrop-blur md:top-0 md:z-20">
+      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top,0px))] z-30 -mx-4 flex flex-wrap items-center gap-2 border-b border-line bg-paper/95 px-4 py-2.5 backdrop-blur md:top-0 md:z-20 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
         {lockView ? null : (
-          <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Plan view">
+          <div className="flex gap-1 overflow-x-auto md:overflow-visible" role="tablist" aria-label="Plan view">
             {views.map((item) => (
               <button
                 key={item}
@@ -254,68 +254,86 @@ export function PlanEditor({
       {sections.map((section) => (
         <div key={section.key} className="grid gap-3">
           {section.title ? <h2 className="text-lg font-extrabold">{section.title}</h2> : null}
-          <div className={`grid gap-3 ${view === "month" ? "sm:grid-cols-2 xl:grid-cols-3" : ""}`}>
+          <div
+            className={
+              view === "month"
+                ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+                : view === "week"
+                  ? "grid gap-3 md:grid-cols-7 md:gap-2"
+                  : view === "today"
+                    ? "grid gap-3"
+                    : "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            }
+          >
             {section.dates.map((date) => {
               const rows = items.filter((workout) => workout.scheduled_date === date);
               const active = overDay === date;
+              const weekCompact = view === "week";
               return (
                 <section
                   key={date}
                   id={date}
                   data-day={date}
-                  className={`grid min-h-24 min-w-0 gap-2 rounded-[var(--radius-lg)] p-2.5 ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
+                  className={`grid min-h-24 min-w-0 gap-2 rounded-[var(--radius-lg)] p-2.5 ${weekCompact ? "md:min-h-40 md:p-2" : ""} ${date === today ? "bg-maroon-soft ring-1 ring-maroon" : "bg-elevated/40"} ${active ? "ring-2 ring-gold" : ""}`}
                 >
-                  <h2 className="px-1 text-sm font-bold">{dayHeading(date, today)}</h2>
+                  <h2 className={`px-1 text-sm font-bold ${weekCompact ? "md:text-xs md:leading-tight" : ""}`}>{dayHeading(date, today)}</h2>
                   {rows.length === 0 ? (
-                    <p className="flex items-center gap-1.5 px-1 caption">
-                      <Moon size={12} strokeWidth={1.75} aria-hidden />
-                      Rest — drop a workout here
+                    <p className={`flex items-center gap-1.5 px-1 caption ${weekCompact ? "md:px-0 md:text-[11px]" : ""}`}>
+                      <Moon size={12} strokeWidth={1.75} aria-hidden className={weekCompact ? "md:hidden" : undefined} />
+                      <span className={weekCompact ? "md:hidden" : undefined}>Rest — drop a workout here</span>
+                      {weekCompact ? <span className="hidden md:inline">Rest</span> : null}
                     </p>
                   ) : null}
                   {rows.map((workout) => (
-                    <article key={workout.id} className="app-card min-w-0 overflow-hidden p-3" data-day={date}>
+                    <article
+                      key={workout.id}
+                      className={`app-card min-w-0 overflow-hidden p-3 ${weekCompact ? "md:p-2" : ""}`}
+                      data-day={date}
+                    >
                       <div className="flex items-start gap-2">
-                        {workout.status === "completed" ? <span className="w-9" /> : (
+                        {workout.status === "completed" ? (
+                          <span className={weekCompact ? "hidden md:block md:w-0" : "w-9"} />
+                        ) : (
                           <button
                             type="button"
-                            className="grid h-9 w-9 shrink-0 cursor-grab touch-none place-items-center rounded-[var(--radius-sm)] border border-line text-muted active:cursor-grabbing"
+                            className={`grid h-9 w-9 shrink-0 cursor-grab touch-none place-items-center rounded-[var(--radius-sm)] border border-line text-muted active:cursor-grabbing ${weekCompact ? "md:h-7 md:w-7" : ""}`}
                             aria-label={`Drag ${workout.title} to another day`}
                             onPointerDown={(event) => beginDrag(event, workout)}
                             onPointerMove={trackDrag}
                             onPointerUp={endDrag}
                             onPointerCancel={endDrag}
                           >
-                            <GripVertical size={16} />
+                            <GripVertical size={weekCompact ? 14 : 16} />
                           </button>
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className={`flex flex-wrap items-center gap-1.5 ${weekCompact ? "md:gap-1" : ""}`}>
                             {workout.is_event_session || workout.phase_hint === "event" ? (
                               <span className="chip inline-flex items-center gap-1 border border-maroon text-maroon">
                                 <Flag size={12} strokeWidth={1.75} aria-hidden />
-                                Race
+                                <span className={weekCompact ? "md:sr-only" : undefined}>Race</span>
                               </span>
                             ) : workout.sport === "recovery" || workout.sport === "mobility" || workout.phase_hint === "recovery" ? (
                               <span className="chip inline-flex items-center gap-1">
                                 <Moon size={12} strokeWidth={1.75} aria-hidden />
-                                Rest
+                                <span className={weekCompact ? "md:sr-only" : undefined}>Rest</span>
                               </span>
                             ) : (
                               <span className={`chip sport-${workout.sport} inline-flex items-center gap-1`}>
                                 <SportIcon sport={workout.sport} size={12} />
-                                {sportLabel(workout.sport)}
+                                <span className={weekCompact ? "md:hidden" : undefined}>{sportLabel(workout.sport)}</span>
                               </span>
                             )}
-                            {workout.phase_hint === "taper" ? <span className="chip">Taper</span> : null}
-                            {workout.phase_hint === "recovery" && workout.sport !== "recovery" ? <span className="chip">Recovery</span> : null}
-                            <span className={`chip status-${workout.status}`}>{statusLabel(workout.status)}</span>
+                            {workout.phase_hint === "taper" ? <span className={`chip ${weekCompact ? "md:hidden" : ""}`}>Taper</span> : null}
+                            {workout.phase_hint === "recovery" && workout.sport !== "recovery" ? <span className={`chip ${weekCompact ? "md:hidden" : ""}`}>Recovery</span> : null}
+                            <span className={`chip status-${workout.status} ${weekCompact ? "md:hidden" : ""}`}>{statusLabel(workout.status)}</span>
                           </div>
-                          <h3 className="mt-1.5 text-base font-bold leading-snug">{workout.title}</h3>
-                          <p className="metric caption mt-0.5">{formatDuration(workout.duration_min)} · {intensityLabel(workout.intensity)}</p>
+                          <h3 className={`mt-1.5 font-bold leading-snug ${weekCompact ? "text-base md:mt-1 md:text-xs" : "text-base"}`}>{workout.title}</h3>
+                          <p className={`metric caption mt-0.5 ${weekCompact ? "md:text-[10px]" : ""}`}>{formatDuration(workout.duration_min)} · {intensityLabel(workout.intensity)}</p>
                         </div>
                       </div>
                       {workout.exercises.length ? (
-                        <details className="mt-2">
+                        <details className={`mt-2 ${weekCompact ? "md:hidden" : ""}`}>
                           <summary className="cursor-pointer text-sm font-semibold text-maroon">Exercises ({workout.exercises.length})</summary>
                           <ul className="mt-2 grid gap-1.5">
                             {workout.exercises.map((exercise) => (
@@ -330,7 +348,7 @@ export function PlanEditor({
                         </details>
                       ) : null}
                       {(workout.objective || workout.why_text) ? (
-                        <details className="mt-2">
+                        <details className={`mt-2 ${weekCompact ? "md:hidden" : ""}`}>
                           <summary className="cursor-pointer text-sm font-semibold text-muted">
                             {workout.is_event_session || workout.phase_hint === "taper" ? "Why was this changed?" : "Why this workout"}
                           </summary>
@@ -340,18 +358,18 @@ export function PlanEditor({
                           </div>
                         </details>
                       ) : null}
-                      <div className="mt-2.5 flex flex-wrap gap-2">
+                      <div className={`mt-2.5 flex flex-wrap gap-2 ${weekCompact ? "md:mt-1.5" : ""}`}>
                         {workout.is_event_session && workout.event_id ? (
-                          <Link className="btn btn-primary btn-sm" href={withReturnTo(`/events/${workout.event_id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Event prep</Link>
+                          <Link className={`btn btn-primary btn-sm ${weekCompact ? "md:w-full md:px-1.5 md:text-[11px]" : ""}`} href={withReturnTo(`/events/${workout.event_id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Event prep</Link>
                         ) : (
-                          <Link className="btn btn-primary btn-sm" href={withReturnTo(`/train/${workout.id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Open</Link>
+                          <Link className={`btn btn-primary btn-sm ${weekCompact ? "md:w-full md:px-1.5 md:text-[11px]" : ""}`} href={withReturnTo(`/train/${workout.id}`, returnTo ?? `/plan?week=${weekAnchor}&day=${date}`)}>Open</Link>
                         )}
                         {!workout.is_event_session && date === today && workout.exercises.some((exercise) => exercise.liveSlug) ? (
-                          <Link className="btn btn-ghost btn-sm" href={`/live?workout=${workout.id}`}>Camera</Link>
+                          <Link className={`btn btn-ghost btn-sm ${weekCompact ? "md:hidden" : ""}`} href={`/live?workout=${workout.id}`}>Camera</Link>
                         ) : null}
                       </div>
                       {workout.status === "completed" ? null : (
-                        <label className="mt-2 grid min-w-0 w-full gap-1.5 overflow-hidden text-xs">
+                        <label className={`mt-2 grid min-w-0 w-full gap-1.5 overflow-hidden text-xs ${weekCompact ? "md:hidden" : ""}`}>
                           <span>Move to</span>
                           <span className="block min-w-0 overflow-hidden">
                             <input
@@ -368,7 +386,7 @@ export function PlanEditor({
                           </span>
                         </label>
                       )}
-                      <div className="mt-2">
+                      <div className={`mt-2 ${weekCompact ? "md:hidden" : ""}`}>
                         <StatusChoices status={workout.status} busy={busyId === workout.id} onChoose={(next) => void choose(workout.id, next)} />
                       </div>
                     </article>

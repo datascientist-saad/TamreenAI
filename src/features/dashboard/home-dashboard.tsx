@@ -13,6 +13,7 @@ import {
   Sparkles,
   Utensils,
 } from "lucide-react";
+import { pageContainerClass } from "@/components/page";
 import { DemoBanner, SafetyBanner } from "@/components/states";
 import { ResumeWorkoutBanner } from "@/components/resume-workout";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -191,23 +192,33 @@ export function HomeDashboard({
     : null;
 
   return (
-    <main className="mx-auto grid w-full min-w-0 max-w-5xl gap-4 px-4 py-4 *:min-w-0 sm:py-5">
+    <main className={pageContainerClass({ compact: true })}>
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="caption">{dateLabel}</p>
           <h1 className="page-title mt-0.5">{greeting(name, hour)}</h1>
           {isDemo ? <div className="mt-2"><DemoBanner /></div> : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 md:hidden">
           <Link href="/notifications" className="btn btn-ghost btn-sm min-h-11 min-w-11" aria-label="Notifications">
             <Bell size={16} strokeWidth={1.75} aria-hidden />
           </Link>
           <Link href="/profile" className="btn btn-ghost btn-sm">Profile</Link>
         </div>
+        <div className="hidden shrink-0 items-center gap-2 md:flex">
+          <Link href="/notifications" className="btn btn-ghost btn-sm" aria-label="Notifications">
+            <Bell size={16} strokeWidth={1.75} aria-hidden />
+            Alerts
+          </Link>
+          <Link href="/profile" className="btn btn-ghost btn-sm">Profile</Link>
+        </div>
       </header>
 
-      <ReadinessCard readiness={readiness} compact />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
+
+      <div className="md:hidden">
+        <ReadinessCard readiness={readiness} compact />
+      </div>
 
       <ResumeWorkoutBanner />
 
@@ -237,6 +248,8 @@ export function HomeDashboard({
         </section>
       ) : null}
 
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] md:items-start lg:gap-6">
+      <div className="grid gap-4">
       <section className="grid gap-3">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-title">
@@ -438,6 +451,12 @@ export function HomeDashboard({
           <Link className="btn btn-primary mt-3 w-full sm:w-auto" href="/conflicts">Resolve</Link>
         </article>
       ) : null}
+      </div>
+
+      <aside className="grid gap-4 md:sticky md:top-4">
+      <div className="hidden md:block">
+        <ReadinessCard readiness={readiness} compact />
+      </div>
 
       <section className="app-card grid gap-3 p-4">
         <div className="flex items-center justify-between gap-2">
@@ -470,7 +489,7 @@ export function HomeDashboard({
         </article>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-2">
         {nextWorkout && !todayEvent ? (
           <QuickAction href={withReturnTo(`/train/${nextWorkout.id}`, todayReturn)} icon={Sparkles} label="Start workout" />
         ) : (
@@ -484,6 +503,8 @@ export function HomeDashboard({
           <QuickAction href="/plan?tab=events" icon={Flag} label="Events" />
         )}
       </section>
+      </aside>
+      </div>
     </main>
   );
 }

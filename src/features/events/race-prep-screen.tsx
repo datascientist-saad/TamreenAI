@@ -198,7 +198,7 @@ export function RacePrepScreen({ snapshot, backHref, backLabel, details, overlap
     : snapshot.startLabel;
 
   return (
-    <main className="mx-auto grid w-full min-w-0 max-w-3xl gap-4 px-4 py-4 pb-24 sm:py-6">
+    <main className="mx-auto grid w-full min-w-0 max-w-3xl gap-4 px-4 py-4 pb-24 sm:py-6 md:max-w-5xl md:gap-5 md:px-6 md:pb-8 lg:px-8">
       <header className="grid gap-3">
         <Link className="btn btn-ghost btn-sm w-fit" href={backHref}>
           <ArrowLeft size={16} strokeWidth={1.75} aria-hidden />
@@ -283,7 +283,7 @@ export function RacePrepScreen({ snapshot, backHref, backLabel, details, overlap
         </section>
       ) : null}
 
-      <div className="flex gap-1 overflow-x-auto border-b border-line pb-0" role="tablist" aria-label="Race Prep sections">
+      <div className="flex gap-1 overflow-x-auto border-b border-line pb-0 md:overflow-visible" role="tablist" aria-label="Race Prep sections">
         {tabs.map((tab) => {
           const active = section === tab.id;
           return (
@@ -292,7 +292,7 @@ export function RacePrepScreen({ snapshot, backHref, backLabel, details, overlap
               type="button"
               role="tab"
               aria-selected={active}
-              className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
+              className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors md:px-4 ${
                 active
                   ? "border-maroon text-maroon"
                   : "border-transparent text-muted hover:text-ink"

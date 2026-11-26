@@ -48,7 +48,7 @@ export function SettingsForm({
   }
 
   return (
-    <form action={submit} className="grid gap-3">
+    <form action={submit} className="grid gap-3 sm:grid-cols-2">
       <label>Units
         <select name="unitSystem" defaultValue={unitSystem}>
           <option value="metric">Metric</option>
@@ -74,8 +74,8 @@ export function SettingsForm({
           <option value="dark">Dark</option>
         </select>
       </label>
-      <fieldset className="grid gap-2">
-        <legend className="font-bold">Notifications</legend>
+      <fieldset className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
+        <legend className="font-bold sm:col-span-2">Notifications</legend>
         {Object.entries({
           workout: "Workout reminder",
           recovery: "Recovery warning",
@@ -90,9 +90,9 @@ export function SettingsForm({
           </label>
         ))}
       </fieldset>
-      {message ? <p className="text-sm">{message}</p> : null}
-      {error ? <p className="text-sm text-live">{error}</p> : null}
-      <button className="btn btn-primary" type="submit">Save settings</button>
+      {message ? <p className="text-sm sm:col-span-2">{message}</p> : null}
+      {error ? <p className="text-sm text-live sm:col-span-2">{error}</p> : null}
+      <button className="btn btn-primary sm:col-span-2 sm:w-auto" type="submit">Save settings</button>
     </form>
   );
 }
