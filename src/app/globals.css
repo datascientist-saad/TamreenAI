@@ -35,9 +35,10 @@
   --ink: #f5f5f5;
   --muted: #a1a1aa;
   --line: #292b30;
-  --maroon: #8b1538;
-  --maroon-deep: #5c0e26;
-  --maroon-soft: rgba(139, 21, 56, 0.22);
+  /* Lighter maroon for readable text/links on dark surfaces; buttons stay brand-forward. */
+  --maroon: #d45f82;
+  --maroon-deep: #8b1538;
+  --maroon-soft: rgba(212, 95, 130, 0.18);
   --gold: #c9a876;
   --success: #3d8f68;
   --success-soft: rgba(61, 143, 104, 0.16);
