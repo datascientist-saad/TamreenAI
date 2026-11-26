@@ -155,7 +155,12 @@ export default async function TrainPage({
         <p className="caption">Live camera opens on the day this session is scheduled.</p>
       ) : null}
 
-      <Link className="text-sm font-bold text-maroon" href="/ai">Ask AI Coach about this session</Link>
+      <Link
+        className="text-sm font-bold text-maroon"
+        href={`/ai?kind=workout&id=${encodeURIComponent(workout.id)}&workoutId=${encodeURIComponent(workout.id)}&context=${encodeURIComponent(workout.title)}&from=${encodeURIComponent(returnTo || `/train/${workout.id}`)}`}
+      >
+        Ask AI Coach about this session
+      </Link>
     </PageFrame>
   );
 }

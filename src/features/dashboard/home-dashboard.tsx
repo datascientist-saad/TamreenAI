@@ -183,7 +183,7 @@ export function HomeDashboard({
       : [];
 
   const coachHref = insight
-    ? `/ai?context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}`
+    ? `/ai?kind=change&id=${encodeURIComponent(insight.id)}&context=${encodeURIComponent(insight.title)}&body=${encodeURIComponent(insight.body.slice(0, 280))}&from=${encodeURIComponent("/home")}`
     : "/ai";
 
   const prepHref = prepEventId
@@ -387,13 +387,13 @@ export function HomeDashboard({
         <section className="grid gap-2">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p className="section-title">Pending plan changes</p>
-            <Link className="btn btn-ghost btn-sm" href={coachHref}>Ask AI Coach</Link>
+            <Link className="btn btn-ghost btn-sm" href={coachHref}>Ask about this change</Link>
           </div>
           <InsightCard
             title={insight.title}
             body={insight.body}
             href={coachHref}
-            action="Ask coach"
+            action="Ask about this change"
           />
           <button
             type="button"
