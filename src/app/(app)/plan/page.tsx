@@ -84,6 +84,7 @@ export default async function PlanPage({
       title={plan?.name ?? "Plan"}
       lede={currentBlock ? `${currentBlock.phase} · ${currentBlock.name}` : "Weekly schedule and events"}
       compact
+      width="wide"
       actions={
         <div className="flex flex-wrap gap-2">
           <Link

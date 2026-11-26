@@ -55,8 +55,11 @@ export default async function TrainHubPage() {
       title="Train"
       lede="Live camera, manual logging, and recent sessions."
       compact
+      width="wide"
     >
       <ResumeWorkoutBanner />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
+      <div className="grid gap-4">
       {next ? (
         <section className="grid gap-3">
           <h2 className="section-title">Recommended</h2>
@@ -84,7 +87,7 @@ export default async function TrainHubPage() {
 
       <section className="grid gap-2">
         <h2 className="section-title">Start</h2>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-2">
           <HubLink
             href={next ? `/train/${next.id}` : "/plan"}
             icon={Dumbbell}
@@ -149,9 +152,10 @@ export default async function TrainHubPage() {
           <LogChip href="/ai" icon={Sparkles} label="Ask coach" />
         </div>
       </section>
+      </div>
 
       {(recentLive ?? []).length || (recentCompleted ?? []).length ? (
-        <section className="grid gap-2">
+        <section className="grid gap-2 lg:sticky lg:top-4">
           <h2 className="section-title">Recent</h2>
           <ul className="app-card divide-y divide-line">
             {(recentLive ?? []).map((session) => (
@@ -170,7 +174,13 @@ export default async function TrainHubPage() {
             ))}
           </ul>
         </section>
-      ) : null}
+      ) : (
+        <section className="hidden lg:grid lg:gap-2">
+          <h2 className="section-title">Recent</h2>
+          <p className="app-card p-4 text-sm text-muted">Completed camera and logged sessions will show here.</p>
+        </section>
+      )}
+      </div>
     </PageFrame>
   );
 }

@@ -106,7 +106,11 @@ button, a, input, select, textarea { font: inherit; }
   font-variant-numeric: tabular-nums;
 }
 
+/* Mobile bottom nav clearance. Clears at md when the sidebar replaces the tab bar. */
 .safe-bottom { padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 768px) {
+  .safe-bottom { padding-bottom: 0; }
+}
 .safe-top { padding-top: env(safe-area-inset-top, 0px); }
 
 .app-card {
@@ -138,7 +142,7 @@ button, a, input, select, textarea { font: inherit; }
 }
 
 .page-title {
-  font-size: clamp(1.375rem, 3.5vw, 1.75rem);
+  font-size: clamp(1.375rem, 2.4vw, 1.875rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.2;

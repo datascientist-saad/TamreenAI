@@ -20,7 +20,10 @@ export function RecoverySectionTabs() {
     : "overview";
 
   return (
-    <nav className="flex gap-1 overflow-x-auto overscroll-x-contain pb-0.5" aria-label="Body sections">
+    <nav
+      className="flex gap-1 overflow-x-auto overscroll-x-contain pb-0.5 md:flex-wrap md:overflow-visible"
+      aria-label="Body sections"
+    >
       {tabs.map((item) => {
         const active = item.id === "nutrition" ? false : tab === item.id;
         return (
@@ -29,7 +32,7 @@ export function RecoverySectionTabs() {
             href={item.href}
             scroll={false}
             className={cn(
-              "shrink-0 rounded-full px-3.5 py-2 text-sm font-semibold transition-colors",
+              "shrink-0 rounded-full px-3.5 py-2 text-sm font-semibold transition-colors md:rounded-[var(--radius-sm)]",
               active ? "bg-maroon text-white" : "bg-card text-muted ring-1 ring-line hover:text-ink",
             )}
             aria-current={active ? "page" : undefined}

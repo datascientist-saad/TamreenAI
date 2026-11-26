@@ -50,7 +50,7 @@ export function WorkoutCard({
         </div>
       </div>
       <div className="mt-3 flex gap-2">
-        <Link className={cn("btn w-full", done ? "btn-ghost" : "btn-primary")} href={destination}>
+        <Link className={cn("btn w-full sm:w-auto", done ? "btn-ghost" : "btn-primary")} href={destination}>
           {actionLabel ?? (done ? "View workout" : "Start")}
           <ChevronRight size={16} strokeWidth={1.75} aria-hidden />
         </Link>

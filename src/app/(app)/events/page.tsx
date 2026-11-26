@@ -56,7 +56,7 @@ export default async function EventsPage({
       ) : null}
 
       {active.length ? (
-        <ul className="grid gap-3">
+        <ul className="grid gap-3 md:grid-cols-2">
           {active.map((event) => (
             <li key={event.id}>
               <div className="app-card grid gap-3 p-4 transition hover:border-maroon/40">

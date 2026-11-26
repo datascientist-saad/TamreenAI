@@ -104,7 +104,7 @@ export default async function ProgressPage() {
           icon={ChartNoAxesCombined}
         />
       ) : (
-        <ul className="grid gap-2 sm:grid-cols-2">
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {sportRows.map((score) => {
             const Icon = icons[score.dimension] ?? ChartNoAxesCombined;
             return (

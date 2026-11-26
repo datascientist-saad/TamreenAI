@@ -242,7 +242,7 @@ export function CoachBox({
   return (
     <div
       className={cn(
-        "mx-auto flex w-full min-w-0 max-w-2xl flex-col",
+        "mx-auto flex w-full min-w-0 max-w-2xl flex-col md:max-w-3xl",
         empty
           ? "min-h-[calc(100dvh-7.5rem)] md:min-h-[calc(100dvh-2rem)]"
           : "min-h-[calc(100dvh-7.5rem)] md:min-h-[calc(100dvh-2rem)]",
@@ -470,7 +470,7 @@ function CoachComposer({
             <div
               id={`${pickerId}-menu`}
               role="menu"
-              className="absolute bottom-[calc(100%+0.4rem)] left-0 z-20 w-[min(22rem,calc(100vw-2.5rem))] overflow-hidden rounded-[var(--radius-md)] border border-line bg-card text-ink shadow-[var(--shadow)]"
+              className="absolute bottom-[calc(100%+0.4rem)] left-0 z-20 w-[min(22rem,calc(100%-0rem))] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-[var(--radius-md)] border border-line bg-card text-ink shadow-[var(--shadow)] md:max-w-none"
             >
               {contextOptions.length ? (
                 <ul className="max-h-64 overflow-y-auto py-1">
