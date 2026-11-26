@@ -1744,6 +1744,14 @@ type PersonalEventInput = {
   preset?: string;
   eventType?: string;
   date: string;
+  /** Local wall-clock time HH:MM; combined with date + timezone into starts_at. */
+  startTime?: string | null;
+  timezone?: string | null;
+  waveLabel?: string | null;
+  checkInClosesAt?: string | null;
+  bibPickup?: string | null;
+  travelMinutes?: number | null;
+  arrivalBufferMin?: number | null;
   distanceM: number | null;
   swimM?: number | null;
   bikeM?: number | null;
@@ -1755,6 +1763,42 @@ type PersonalEventInput = {
   notes?: string;
   status?: "active" | "completed" | "cancelled";
 };
+
+function combineStartsAt(date: string, startTime: string | null | undefined, timeZone: string | null | undefined): string | null {
+  if (!startTime || !/^\d{2}:\d{2}$/.test(startTime)) return null;
+  // Interpret as wall time in the event timezone by building an ISO-like local and letting Postgres store timestamptz.
+  // For deterministic storage we encode as UTC offset-naive ISO tagged with Z after converting via Intl when possible.
+  const zone = timeZone || "Asia/Qatar";
+  try {
+    const probe = new Date(`${date}T${startTime}:00`);
+    // Prefer storing the wall-clock as a timestamptz by composing from parts in the zone.
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      timeZoneName: "longOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    // Find UTC instant whose wall time in zone equals date+startTime.
+    let guess = Date.parse(`${date}T${startTime}:00Z`);
+    for (let i = 0; i < 4; i += 1) {
+      const parts = Object.fromEntries(formatter.formatToParts(new Date(guess)).map((part) => [part.type, part.value]));
+      const asWall = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+      const target = `${date}T${startTime}`;
+      const deltaMin = (Date.parse(`${target}:00Z`) - Date.parse(`${asWall}:00Z`)) / 60_000;
+      if (!Number.isFinite(deltaMin) || Math.abs(deltaMin) < 1) break;
+      guess += deltaMin * 60_000;
+    }
+    void probe;
+    return new Date(guess).toISOString();
+  } catch {
+    return `${date}T${startTime}:00.000Z`;
+  }
+}
 
 function eventTypeFromInput(input: PersonalEventInput) {
   return input.preset || input.eventType || input.category || "race";
@@ -1780,7 +1824,12 @@ async function upsertEventPreparation(
   startsOn: string,
   name: string,
   templateSlug: string | null,
-  extras?: { fuelingPractice?: Record<string, unknown> | null; phasePlan?: unknown },
+  extras?: {
+    fuelingPractice?: Record<string, unknown> | null;
+    phasePlan?: unknown;
+    priority?: "primary" | "secondary" | "practice";
+    scheduleNotes?: string[];
+  },
 ) {
   const { resolveEventTemplate } = await import("@/services/events/catalog");
   const { buildPhasePlan, readinessEvidence } = await import("@/services/events/templates");
@@ -1790,6 +1839,18 @@ async function upsertEventPreparation(
   const weeks = Math.max(1, Math.ceil((new Date(`${startsOn}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / (7 * 86400000)));
   const phasePlan = extras?.phasePlan
     ?? (template ? buildPhasePlan(template, weeks) : []);
+  const { defaultChecklist } = await import("@/services/events/race-prep");
+  const { data: existingPrep } = await supabase
+    .from("event_preparation")
+    .select("checklist, fueling_plan, race_day_plan, offline_revision")
+    .eq("user_id", userId)
+    .eq("event_id", eventId)
+    .maybeSingle();
+  const priority = extras?.priority ?? "primary";
+  const checklist = Array.isArray(existingPrep?.checklist) && (existingPrep?.checklist as unknown[]).length
+    ? existingPrep?.checklist
+    : defaultChecklist(priority);
+
   await supabase.from("event_preparation").upsert({
     user_id: userId,
     event_id: eventId,
@@ -1801,6 +1862,8 @@ async function upsertEventPreparation(
       ? { weeksAvailable: weeks, minPrepWeeks: template.minPrepWeeks, shortPrep: weeks < template.minPrepWeeks }
       : { weeksAvailable: weeks },
     fueling_practice: extras?.fuelingPractice ?? {},
+    checklist,
+    schedule_notes: extras?.scheduleNotes ?? [],
     notes: template && weeks < template.minPrepWeeks
       ? "Preparation window is shorter than the template minimum. Volume stays conservative."
       : "",
@@ -1919,6 +1982,7 @@ async function runEventAwareRecalculation(
     input.templateSlug ?? subjectRow?.template_slug ?? null,
     {
       fuelingPractice: result.fuelingPractice,
+      priority: result.subject.priority,
       phasePlan: result.phases.map((phase) => ({
         phase: phase.phase,
         focus: phase.objectives,
@@ -1926,6 +1990,7 @@ async function runEventAwareRecalculation(
         endDate: phase.endDate,
         weeksHint: Math.max(1, Math.ceil((Date.parse(`${phase.endDate}T00:00:00Z`) - Date.parse(`${phase.startDate}T00:00:00Z`)) / (7 * 86400000) + 1)),
       })),
+      scheduleNotes: result.adaptations.slice(0, 12).map((row) => row.explanation),
     },
   );
 
@@ -1937,16 +2002,25 @@ async function runEventAwareRecalculation(
     .eq("event_id", input.eventId)
     .eq("approval_status", "pending");
 
+  // Date protection (event day / recovery day / unrelated pause) applies immediately.
+  // Broader volume/intensity taper changes still need athlete approval.
+  const isImmediateProtection = (key: string, type: string) =>
+    type === "event_day_replace"
+    || key.startsWith("recovery-day:")
+    || key.startsWith("taper-pause:");
+  const approvalAdaptations = result.adaptations.filter((row) => !isImmediateProtection(row.idempotencyKey, row.adaptationType));
+  const immediateAdaptations = result.adaptations.filter((row) => isImmediateProtection(row.idempotencyKey, row.adaptationType));
+
   let recommendationId: string | null = null;
   let proposalCreated = false;
-  if (input.createProposal !== false && result.adaptations.length) {
+  if (input.createProposal !== false && approvalAdaptations.length) {
     const { data: proposal } = await supabase.from("ai_recommendations").insert({
       user_id: userId,
       kind: input.trigger === "event_create" ? "event_create" : input.trigger === "event_cancel" ? "event_cancel" : "event_edit",
       title: result.summary.title,
-      body: result.summary.body,
+      body: `${result.summary.body} Event day, day-before recovery, and unrelated taper pauses already apply.`,
       factors: result.summary.factors,
-      proposed_changes: adaptationsToProposedChanges(result.adaptations),
+      proposed_changes: adaptationsToProposedChanges(approvalAdaptations),
       status: "pending",
     }).select("id").single();
     recommendationId = proposal?.id ?? null;
@@ -1957,7 +2031,7 @@ async function runEventAwareRecalculation(
         kind: "plan",
         title: result.summary.title,
         body: result.compatibility.status === "Compatible"
-          ? "Review proposed training adjustments for your event."
+          ? "Review proposed training adjustments for your event. Protected dates already apply."
           : `Event compatibility: ${result.compatibility.status}. Review proposed changes.`,
         href: "/home",
       });
@@ -1976,63 +2050,74 @@ async function runEventAwareRecalculation(
         adaptation_type: row.adaptationType,
         explanation: row.explanation,
         expected_impact: row.expectedImpact,
-        approval_status: "pending",
+        approval_status: isImmediateProtection(row.idempotencyKey, row.adaptationType) ? "applied" : "pending",
+        applied_at: isImmediateProtection(row.idempotencyKey, row.adaptationType) ? new Date().toISOString() : null,
         idempotency_key: row.idempotencyKey,
       })),
     );
   }
+  void immediateAdaptations;
 
-  // Apply event-day soft-block immediately: hide conflicting planned sessions on event dates.
+  // Apply date protection immediately: event day, day-before recovery, unrelated taper pauses.
+  // Broader volume/intensity taper proposals still require approval.
   if (input.trigger !== "event_cancel" && input.trigger !== "event_complete") {
-    const eventDates = result.adaptations
-      .filter((row) => row.adaptationType === "event_day_replace" && row.originalWorkoutId)
-      .map((row) => row.originalWorkoutId!);
-    if (eventDates.length) {
-      // Soft-delete conflicting planned workouts on event day (not counted as missed).
+    const immediateRemoveIds = result.adaptations
+      .filter((row) =>
+        (row.adaptationType === "event_day_replace" && row.originalWorkoutId && !row.proposed)
+        || (row.adaptationType === "remove" && row.idempotencyKey.startsWith("taper-pause:") && row.originalWorkoutId)
+        || (row.adaptationType === "replace" && row.idempotencyKey.startsWith("recovery-day:") && row.originalWorkoutId))
+      .map((row) => row.originalWorkoutId!)
+      .filter(Boolean);
+    if (immediateRemoveIds.length) {
       await supabase
         .from("workouts")
         .update({
           deleted_at: new Date().toISOString(),
-          why_text: "Replaced by event day — not a missed workout.",
+          why_text: "Paused for event protection — not a missed workout.",
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId)
-        .in("id", eventDates)
+        .in("id", immediateRemoveIds)
         .neq("status", "completed")
         .is("deleted_at", null);
     }
 
-    // Insert event-day sessions that were proposed (safe automatic constraint).
-    const inserts = result.adaptations.filter((row) => row.adaptationType === "event_day_replace" && row.proposed?.isEventSession && row.proposed);
+    // Insert event-day sessions and recovery-day placeholders (safe automatic constraints).
+    const inserts = result.adaptations.filter((row) =>
+      (row.adaptationType === "event_day_replace" && row.proposed?.isEventSession && row.proposed)
+      || (row.adaptationType === "replace" && row.idempotencyKey.startsWith("recovery-day:") && row.proposed));
     for (const row of inserts) {
       const proposed = row.proposed!;
-      const { data: existingEventSession } = await supabase
+      const isEvent = Boolean(proposed.isEventSession);
+      let existingQuery = supabase
         .from("workouts")
         .select("id")
         .eq("user_id", userId)
         .eq("scheduled_date", proposed.date)
-        .eq("is_event_session", true)
-        .eq("event_id", input.eventId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (existingEventSession) continue;
+        .is("deleted_at", null);
+      existingQuery = isEvent
+        ? existingQuery.eq("is_event_session", true).eq("event_id", input.eventId)
+        : existingQuery.eq("sport", "recovery").eq("title", "Recovery day");
+      const { data: existingSession } = await existingQuery.maybeSingle();
+      if (existingSession) continue;
       await supabase.from("workouts").insert({
         user_id: userId,
         scheduled_date: proposed.date,
         sport: proposed.sport,
         title: proposed.title,
-        objective: proposed.objective ?? "Event day",
+        objective: proposed.objective ?? (isEvent ? "Event day" : "Recovery day"),
         duration_min: proposed.durationMin,
         intensity: proposed.intensity,
-        expected_load: Math.round(proposed.durationMin * 0.85),
-        importance: "key",
+        expected_load: Math.round(proposed.durationMin * (isEvent ? 0.85 : 0.2)),
+        importance: isEvent ? "key" : "optional",
         why_text: proposed.why ?? row.explanation,
         status: "planned",
-        is_event_session: true,
-        event_id: input.eventId,
+        is_event_session: isEvent,
+        event_id: isEvent ? input.eventId : null,
         structure: {
-          isEventSession: true,
+          isEventSession: isEvent,
           eventId: input.eventId,
+          recoveryOnly: !isEvent,
           supportsEventIds: [input.eventId],
         },
       });
@@ -2100,6 +2185,8 @@ export async function createPersonalEvent(input: PersonalEventInput) {
   });
   const priority = input.priority ?? priorityAdvice.recommended;
 
+  const eventTimezone = input.timezone || athlete?.timezone || "Asia/Qatar";
+  const startsAt = combineStartsAt(input.date, input.startTime, eventTimezone);
   const { data: created, error } = await supabase.from("events").insert({
     owner_user_id: user.id,
     name: input.name,
@@ -2107,6 +2194,13 @@ export async function createPersonalEvent(input: PersonalEventInput) {
     discipline: template?.discipline ?? input.category ?? eventType,
     starts_on: input.date,
     ends_on: input.date,
+    starts_at: startsAt,
+    timezone: eventTimezone,
+    wave_label: input.waveLabel || null,
+    check_in_closes_at: input.checkInClosesAt || null,
+    bib_pickup: input.bibPickup || "",
+    travel_minutes: input.travelMinutes ?? null,
+    arrival_buffer_min: input.arrivalBufferMin ?? null,
     distance_m: distanceM,
     swim_m: swimM,
     bike_m: bikeM,
@@ -2179,6 +2273,9 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
   const runM = input.runM ?? template?.runM ?? null;
   const templateSlug = template?.slug ?? null;
   const course = eventCoursePayload({ ...input, swimM, bikeM, runM }, templateSlug);
+  const { data: athleteForTz } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
+  const eventTimezone = input.timezone || athleteForTz?.timezone || "Asia/Qatar";
+  const startsAt = combineStartsAt(input.date, input.startTime, eventTimezone);
   const materialChange = existing.starts_on !== input.date
     || Number(existing.distance_m ?? 0) !== Number(distanceM ?? 0)
     || Number(existing.swim_m ?? 0) !== Number(swimM ?? 0)
@@ -2186,7 +2283,9 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     || Number(existing.run_m ?? 0) !== Number(runM ?? 0)
     || (existing.priority ?? "primary") !== (input.priority ?? "primary")
     || existing.event_type !== eventType
-    || (existing.status ?? "active") !== (input.status ?? "active");
+    || (existing.status ?? "active") !== (input.status ?? "active")
+    || Boolean(input.startTime)
+    || Boolean(input.timezone);
 
   const nextStatus = input.status ?? "active";
   const { error } = await supabase.from("events").update({
@@ -2195,6 +2294,13 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
     discipline: template?.discipline ?? input.category ?? eventType,
     starts_on: input.date,
     ends_on: input.date,
+    starts_at: startsAt,
+    timezone: eventTimezone,
+    wave_label: input.waveLabel || null,
+    check_in_closes_at: input.checkInClosesAt || null,
+    bib_pickup: input.bibPickup || "",
+    travel_minutes: input.travelMinutes ?? null,
+    arrival_buffer_min: input.arrivalBufferMin ?? null,
     distance_m: distanceM,
     swim_m: swimM,
     bike_m: bikeM,
@@ -2244,10 +2350,98 @@ export async function updatePersonalEvent(input: PersonalEventInput & { id: stri
 
   revalidatePath("/events");
   revalidatePath(`/events/${input.id}`);
+  revalidatePath(`/events/${input.id}/prep`);
   revalidatePath("/home");
   revalidatePath("/plan");
   revalidatePath("/nutrition");
   return { ok: true as const, proposalCreated };
+}
+
+export async function saveRacePrepState(input: {
+  eventId: string;
+  checklist?: unknown;
+  raceDayPlan?: unknown;
+  fuelingPlan?: unknown;
+  offlineRevision?: number | null;
+  clearOfflinePending?: boolean;
+}) {
+  const { supabase, user } = await limit("race_prep", 60, 3600);
+  const { data: event } = await supabase
+    .from("events")
+    .select("id, name, starts_on, priority")
+    .eq("id", input.eventId)
+    .eq("owner_user_id", user.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!event) return { ok: false as const, message: "Event not found." };
+
+  const { data: existing } = await supabase
+    .from("event_preparation")
+    .select("id, offline_revision, checklist, race_day_plan, fueling_plan")
+    .eq("user_id", user.id)
+    .eq("event_id", input.eventId)
+    .maybeSingle();
+
+  const nextRevision = Math.max(
+    (existing?.offline_revision ?? 0) + 1,
+    (input.offlineRevision ?? 0) + 1,
+  );
+
+  const payload = {
+    user_id: user.id,
+    event_id: input.eventId,
+    objective: event.name,
+    checklist: input.checklist ?? existing?.checklist ?? [],
+    race_day_plan: input.raceDayPlan ?? existing?.race_day_plan ?? {},
+    fueling_plan: input.fuelingPlan ?? existing?.fueling_plan ?? {},
+    offline_revision: nextRevision,
+    offline_pending: input.clearOfflinePending === false,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("event_preparation").upsert(payload, { onConflict: "user_id,event_id" });
+  if (error) return { ok: false as const, message: error.message };
+
+  revalidatePath("/home");
+  revalidatePath(`/events/${input.eventId}`);
+  revalidatePath(`/events/${input.eventId}/prep`);
+  revalidatePath("/nutrition");
+  return { ok: true as const, offlineRevision: nextRevision };
+}
+
+export async function resolveEventPriorityConflict(input: {
+  primaryEventId: string;
+  secondaryEventId: string;
+}) {
+  const { supabase, user } = await limit("event_priority", 20, 3600);
+  const { error: primaryError } = await supabase
+    .from("events")
+    .update({ priority: "primary", updated_at: new Date().toISOString() })
+    .eq("id", input.primaryEventId)
+    .eq("owner_user_id", user.id);
+  if (primaryError) return { ok: false as const, message: primaryError.message };
+  const { error: secondaryError } = await supabase
+    .from("events")
+    .update({ priority: "secondary", updated_at: new Date().toISOString() })
+    .eq("id", input.secondaryEventId)
+    .eq("owner_user_id", user.id);
+  if (secondaryError) return { ok: false as const, message: secondaryError.message };
+
+  await runEventAwareRecalculation(supabase, user.id, {
+    trigger: "priority_change",
+    eventId: input.primaryEventId,
+    createProposal: true,
+  });
+  await runEventAwareRecalculation(supabase, user.id, {
+    trigger: "priority_change",
+    eventId: input.secondaryEventId,
+    createProposal: true,
+  });
+
+  revalidatePath("/home");
+  revalidatePath("/events");
+  revalidatePath("/plan");
+  return { ok: true as const };
 }
 
 /** Soft-delete an athlete event, then recalculate the future schedule around remaining events. */
@@ -2301,6 +2495,7 @@ export async function deletePersonalEvent(input: { id: string }) {
 
   revalidatePath("/events");
   revalidatePath(`/events/${input.id}`);
+  revalidatePath(`/events/${input.id}/prep`);
   revalidatePath("/home");
   revalidatePath("/plan");
   revalidatePath("/nutrition");

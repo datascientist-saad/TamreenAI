@@ -35,10 +35,10 @@
   --ink: #f5f5f5;
   --muted: #a1a1aa;
   --line: #292b30;
-  /* Lighter maroon for readable text/links on dark surfaces; buttons stay brand-forward. */
-  --maroon: #d45f82;
+  /* Brand maroon lifted for readable accents on charcoal; filled buttons use --maroon-deep. */
+  --maroon: #c45a72;
   --maroon-deep: #8b1538;
-  --maroon-soft: rgba(212, 95, 130, 0.18);
+  --maroon-soft: rgba(196, 90, 114, 0.22);
   --gold: #c9a876;
   --success: #3d8f68;
   --success-soft: rgba(61, 143, 104, 0.16);
@@ -257,8 +257,10 @@ label { display: grid; gap: 0.35rem; font-size: 0.875rem; font-weight: 600; }
 }
 .btn[aria-busy="true"] { cursor: progress; }
 
-.btn-primary { background: var(--maroon); color: white; }
-.btn-primary:hover:not(:disabled) { background: #73122f; filter: none; }
+.btn-primary { background: var(--maroon-deep); color: white; }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--maroon-deep) 88%, black); filter: none; }
+.dark .btn-primary { background: var(--maroon-deep); color: #fff; }
+.dark .btn-soft { color: #f7ecef; }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
 .btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--line) 55%, transparent); filter: none; }
 .btn-soft { background: var(--maroon-soft); color: var(--maroon); border-color: transparent; }

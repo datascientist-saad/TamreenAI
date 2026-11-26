@@ -57,6 +57,7 @@ export default async function HomePage() {
       target={Math.round(target)}
       event={data.event}
       events={data.events}
+      racePrepEvent={data.racePrepEvent}
       insight={data.insight}
       conflict={data.conflicts[0] ?? null}
       recovery={data.recovery}

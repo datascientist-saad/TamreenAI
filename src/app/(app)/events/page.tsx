@@ -59,27 +59,34 @@ export default async function EventsPage({
         <ul className="grid gap-3">
           {active.map((event) => (
             <li key={event.id}>
-              <Link
-                className="app-card block p-4 transition hover:border-maroon/40"
-                href={withReturnTo(`/events/${event.id}`, returnTo)}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="eyebrow">{event.priority ?? "primary"} · {event.event_type}</p>
-                    <h2 className="text-2xl font-bold break-words">{event.name}</h2>
-                    <p className="metric mt-1">
-                      {daysUntil(event.starts_on, today)} days · {event.location ?? event.starts_on}
-                      {event.goal_time_seconds ? ` · goal ${formatClock(event.goal_time_seconds)}` : ""}
-                    </p>
-                    <p className="mt-1 text-sm text-muted">
-                      {event.swim_m || event.bike_m || event.run_m
-                        ? `Swim ${formatDistanceKm(event.swim_m)} · Bike ${formatDistanceKm(event.bike_m)} · Run ${formatDistanceKm(event.run_m)}`
-                        : formatDistanceKm(event.distance_m)}
-                    </p>
+              <div className="app-card grid gap-3 p-4 transition hover:border-maroon/40">
+                <Link className="block" href={withReturnTo(`/events/${event.id}`, returnTo)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="eyebrow">{event.priority ?? "primary"} · {event.event_type}</p>
+                      <h2 className="text-2xl font-bold break-words">{event.name}</h2>
+                      <p className="metric mt-1">
+                        {daysUntil(event.starts_on, today)} days · {event.location ?? event.starts_on}
+                        {event.goal_time_seconds ? ` · goal ${formatClock(event.goal_time_seconds)}` : ""}
+                      </p>
+                      <p className="mt-1 text-sm text-muted">
+                        {event.swim_m || event.bike_m || event.run_m
+                          ? `Swim ${formatDistanceKm(event.swim_m)} · Bike ${formatDistanceKm(event.bike_m)} · Run ${formatDistanceKm(event.run_m)}`
+                          : formatDistanceKm(event.distance_m)}
+                      </p>
+                    </div>
+                    <Trophy size={18} strokeWidth={1.75} className="mt-1 shrink-0 text-maroon" aria-hidden />
                   </div>
-                  <Trophy size={18} strokeWidth={1.75} className="mt-1 shrink-0 text-maroon" aria-hidden />
-                </div>
-              </Link>
+                </Link>
+                {event.starts_on >= today ? (
+                  <Link
+                    className="btn btn-soft btn-sm w-fit"
+                    href={`/events/${event.id}/prep?from=${encodeURIComponent("/events")}`}
+                  >
+                    Open Race Prep
+                  </Link>
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

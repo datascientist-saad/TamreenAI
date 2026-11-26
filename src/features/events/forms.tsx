@@ -24,6 +24,12 @@ type EventFormValues = {
   category?: EventCategory;
   preset?: string;
   date?: string;
+  startTime?: string;
+  timezone?: string;
+  waveLabel?: string;
+  bibPickup?: string;
+  travelMinutes?: number | null;
+  arrivalBufferMin?: number | null;
   location?: string;
   priority?: EventPriority;
   experienceLevel?: string;
@@ -117,11 +123,19 @@ export function PersonalEventForm({
         setError("");
         setMessage("");
         try {
+          const travelRaw = String(formData.get("travelMinutes") || "").trim();
+          const bufferRaw = String(formData.get("arrivalBufferMin") || "").trim();
           const payload = {
             name: String(formData.get("name") || ""),
             category,
             preset,
             date: String(formData.get("date") || ""),
+            startTime: String(formData.get("startTime") || "") || null,
+            timezone: String(formData.get("timezone") || "") || null,
+            waveLabel: String(formData.get("waveLabel") || "") || null,
+            bibPickup: String(formData.get("bibPickup") || "") || null,
+            travelMinutes: travelRaw ? Number(travelRaw) : null,
+            arrivalBufferMin: bufferRaw ? Number(bufferRaw) : null,
             distanceM: distances.distanceM,
             swimM: distances.swimM,
             bikeM: distances.bikeM,
@@ -217,7 +231,35 @@ export function PersonalEventForm({
       ) : null}
 
       <label>Event name<input name="name" required defaultValue={initial?.name ?? ""} placeholder="e.g. Doha 70.3" /></label>
-      <label>Event date<input name="date" type="date" required defaultValue={initial?.date ?? ""} /></label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label>Event date<input name="date" type="date" required defaultValue={initial?.date ?? ""} /></label>
+        <label>
+          Start time (optional)
+          <input name="startTime" type="time" defaultValue={initial?.startTime ?? ""} />
+        </label>
+      </div>
+      <p className="caption">Leave start time blank if unknown — date protection still applies. Times use the event time zone.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label>
+          Time zone
+          <input name="timezone" defaultValue={initial?.timezone ?? "Asia/Qatar"} placeholder="Asia/Qatar" />
+        </label>
+        <label>
+          Wave / corral
+          <input name="waveLabel" defaultValue={initial?.waveLabel ?? ""} placeholder="e.g. Wave B" />
+        </label>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label>
+          Travel minutes
+          <input name="travelMinutes" inputMode="numeric" defaultValue={initial?.travelMinutes ?? ""} placeholder="45" />
+        </label>
+        <label>
+          Arrival buffer (min)
+          <input name="arrivalBufferMin" inputMode="numeric" defaultValue={initial?.arrivalBufferMin ?? ""} placeholder="45" />
+        </label>
+      </div>
+      <label>Bib pickup<input name="bibPickup" defaultValue={initial?.bibPickup ?? ""} placeholder="Expo hall / window" /></label>
 
       {category === "triathlon" ? (
         <div className="grid gap-3 sm:grid-cols-3">

@@ -129,9 +129,9 @@ export default async function PlanPage({
           ) : null}
           <ul className="grid gap-2">
             {(events ?? []).map((event) => (
-              <li key={event.id}>
+              <li key={event.id} className="app-card grid gap-3 p-4">
                 <Link
-                  className="app-card flex flex-wrap items-baseline justify-between gap-2 p-4"
+                  className="flex flex-wrap items-baseline justify-between gap-2"
                   href={withReturnTo(`/events/${event.id}`, planReturn)}
                 >
                   <span className="min-w-0">
@@ -142,6 +142,14 @@ export default async function PlanPage({
                     {daysUntil(event.starts_on, today)}d · {event.starts_on}
                   </span>
                 </Link>
+                {event.starts_on >= today ? (
+                  <Link
+                    className="btn btn-soft btn-sm w-fit"
+                    href={`/events/${event.id}/prep?from=${encodeURIComponent(planReturn)}`}
+                  >
+                    Race Prep
+                  </Link>
+                ) : null}
               </li>
             ))}
           </ul>

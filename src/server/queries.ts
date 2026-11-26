@@ -78,7 +78,7 @@ export async function loadHome() {
       .limit(20),
     shell.supabase
       .from("events")
-      .select("id, name, event_type, starts_on, goal_time_seconds, data_origin, priority, status, distance_m")
+      .select("id, name, event_type, starts_on, starts_at, ends_on, timezone, goal_time_seconds, data_origin, priority, status, distance_m, swim_m, bike_m, run_m, template_slug, discipline")
       .eq("owner_user_id", shell.user.id)
       .is("deleted_at", null)
       .gte("starts_on", today)
@@ -121,7 +121,7 @@ export async function loadHome() {
   }
 
   const eventIds = (events.data ?? []).map((row) => row.id);
-  const [{ data: phases }, { data: activeRecovery }] = await Promise.all([
+  const [{ data: phases }, { data: activeRecovery }, { data: prepRows }] = await Promise.all([
     eventIds.length
       ? shell.supabase
         .from("event_training_phases")
@@ -140,13 +140,77 @@ export async function loadHome() {
       .order("end_date")
       .limit(1)
       .maybeSingle(),
+    eventIds.length
+      ? shell.supabase
+        .from("event_preparation")
+        .select("event_id, checklist, race_day_plan, fueling_plan")
+        .eq("user_id", shell.user.id)
+        .in("event_id", eventIds)
+      : Promise.resolve({ data: [] as Array<{ event_id: string; checklist: unknown; race_day_plan: unknown; fueling_plan: unknown }> }),
   ]);
   const phaseByEvent = new Map((phases ?? []).map((row) => [row.event_id, row.phase]));
-  const mappedEvents = (events.data ?? []).map((row) => ({
-    ...row,
-    days: daysUntil(row.starts_on, today),
-    phase: phaseByEvent.get(row.id) ?? null,
-  }));
+  const prepByEvent = new Map((prepRows ?? []).map((row) => [row.event_id, row]));
+  const { buildRacePrepSnapshot, prepWindowOpen } = await import("@/services/events/race-prep");
+  const { localDateFromStart, pickDominantEvent } = await import("@/services/events/policy");
+  const mappedEvents = (events.data ?? []).map((row) => {
+    const localStartsOn = localDateFromStart(row.starts_at, row.starts_on, row.timezone || shell.timeZone);
+    const prep = prepByEvent.get(row.id);
+    const checklist = Array.isArray(prep?.checklist) ? prep?.checklist as Array<{ id: string; label: string; section: "prepare" | "fuel" | "race_day" | "recover"; done: boolean }> : null;
+    const raceDayPlan = prep?.race_day_plan && typeof prep.race_day_plan === "object"
+      ? prep.race_day_plan as { timeline?: Array<{ id: string; label: string; at: string | null; offsetMin: number | null; done: boolean }> }
+      : {};
+    const fuelingPlan = prep?.fueling_plan && typeof prep.fueling_plan === "object"
+      ? prep.fueling_plan as { slots?: Array<{ id: "day_before" | "race_morning" | "during" | "after"; title: string; suggestions: string[]; tried: string[] }> }
+      : {};
+    const snap = buildRacePrepSnapshot({
+      event: {
+        id: row.id,
+        name: row.name,
+        startsOn: row.starts_on,
+        endsOn: row.ends_on,
+        localStartsOn,
+        priority: (row.priority as "primary" | "secondary" | "practice") || "primary",
+        discipline: row.discipline || row.event_type || "other",
+        distanceM: row.distance_m == null ? null : Number(row.distance_m),
+        swimM: row.swim_m == null ? null : Number(row.swim_m),
+        bikeM: row.bike_m == null ? null : Number(row.bike_m),
+        runM: row.run_m == null ? null : Number(row.run_m),
+        templateSlug: row.template_slug,
+        timezone: row.timezone || shell.timeZone,
+        startsAt: row.starts_at,
+      },
+      today,
+      checklist,
+      timeline: raceDayPlan.timeline ?? null,
+      fuel: fuelingPlan.slots ?? null,
+    });
+    const open = prepWindowOpen({
+      today,
+      eventDate: localStartsOn,
+      priority: (row.priority as "primary" | "secondary" | "practice") || "primary",
+      discipline: row.discipline || row.event_type || "other",
+      distanceM: row.distance_m == null ? null : Number(row.distance_m),
+      templateSlug: row.template_slug,
+    });
+    return {
+      ...row,
+      days: daysUntil(localStartsOn, today),
+      phase: phaseByEvent.get(row.id) ?? null,
+      racePrep: open ? snap : null,
+    };
+  });
+  const dominant = pickDominantEvent(
+    mappedEvents
+      .filter((row) => row.racePrep)
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        startsOn: row.starts_on,
+        priority: (row.priority as "primary" | "secondary" | "practice") || "primary",
+        discipline: row.discipline || row.event_type || "other",
+      })),
+  );
+  const racePrepEvent = mappedEvents.find((row) => row.id === dominant?.id) ?? mappedEvents.find((row) => row.racePrep) ?? null;
   const recoveryEvent = activeRecovery
     ? {
       eventId: activeRecovery.event_id,
@@ -171,6 +235,7 @@ export async function loadHome() {
     scores: [...latestScores.values()],
     events: mappedEvents,
     event: mappedEvents[0] ?? null,
+    racePrepEvent,
     insight: insight.data,
     conflicts: conflicts.data ?? [],
     loads: loads.data ?? [],
