@@ -116,7 +116,12 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
       title={event.name}
       lede={`${event.event_type} · Priority ${priorityDisplayLabel(priority)} · ${event.status ?? "active"}`}
       compact
-      actions={<Link className="btn btn-ghost btn-sm" href="/events">All events</Link>}
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn btn-primary btn-sm" href={`/events/${event.id}/prep?from=${encodeURIComponent(`/events/${event.id}`)}`}>Race Prep</Link>
+          <Link className="btn btn-ghost btn-sm" href="/events">All events</Link>
+        </div>
+      }
     >
       <section className="grid grid-cols-3 gap-2">
         <div className="app-card p-3">
@@ -301,6 +306,19 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
             preset: event.template_slug || event.event_type,
             eventType: event.event_type,
             date: event.starts_on,
+            startTime: event.starts_at
+              ? new Intl.DateTimeFormat("en-GB", {
+                timeZone: event.timezone || athlete?.timezone || "Asia/Qatar",
+                hour: "2-digit",
+                minute: "2-digit",
+                hourCycle: "h23",
+              }).format(new Date(event.starts_at))
+              : "",
+            timezone: event.timezone || athlete?.timezone || "Asia/Qatar",
+            waveLabel: event.wave_label ?? "",
+            bibPickup: event.bib_pickup ?? "",
+            travelMinutes: event.travel_minutes,
+            arrivalBufferMin: event.arrival_buffer_min,
             location: event.location ?? "",
             priority: (event.priority as "primary" | "secondary" | "practice" | undefined) ?? "primary",
             experienceLevel: event.experience_level ?? "",

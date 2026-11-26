@@ -333,13 +333,13 @@ export function OnboardingWizard({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => chooseGoal(slug)}
-                    className={`flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${isPrimary ? "border-[#8a1538] bg-[#8a1538] text-white" : selected ? "border-[#8a1538] bg-card text-ink dark:border-[#f3c1cf]" : "border-line bg-card text-ink"}`}
+                    className={`flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${isPrimary ? "border-maroon-deep bg-maroon-deep text-white" : selected ? "border-maroon bg-card text-ink" : "border-line bg-card text-ink"}`}
                   >
                     <span>{label}</span>
                     <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em]">
                       {isPrimary ? "Primary" : selected ? "Selected" : null}
-                      <span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded-full border-2 ${isPrimary ? "border-white" : selected ? "border-[#8a1538] dark:border-[#f3c1cf]" : "border-current opacity-40"}`}>
-                        {selected ? <span className={`h-2.5 w-2.5 rounded-full ${isPrimary ? "bg-white" : "bg-[#8a1538] dark:bg-[#f3c1cf]"}`} /> : null}
+                      <span aria-hidden="true" className={`grid h-5 w-5 place-items-center rounded-full border-2 ${isPrimary ? "border-white" : selected ? "border-maroon" : "border-current opacity-40"}`}>
+                        {selected ? <span className={`h-2.5 w-2.5 rounded-full ${isPrimary ? "bg-white" : "bg-maroon"}`} /> : null}
                       </span>
                     </span>
                   </button>
@@ -385,7 +385,7 @@ export function OnboardingWizard({
                   type="button"
                   aria-pressed={on}
                   aria-label={`${dayLong[index]}, ${on ? "selected" : "not selected"}`}
-                  className={`grid min-h-16 place-items-center rounded-2xl border-2 px-1 text-center ${on ? "border-[#8a1538] bg-[#8a1538] text-white" : "border-dashed border-line bg-card text-muted"}`}
+                  className={`grid min-h-16 place-items-center rounded-2xl border-2 px-1 text-center ${on ? "border-maroon-deep bg-maroon-deep text-white" : "border-dashed border-line bg-card text-muted"}`}
                   onClick={() => setPreferred(on ? preferred.filter((day) => day !== index) : [...preferred, index])}
                 >
                   <span className="text-sm font-extrabold">{label}</span>
@@ -500,7 +500,7 @@ function Choice({ on, label, onClick }: { on: boolean; label: string; onClick: (
       type="button"
       aria-pressed={on}
       onClick={onClick}
-      className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${on ? "border-[#8a1538] bg-[#8a1538] text-white" : "border-line bg-card text-ink"}`}
+      className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border px-4 text-left text-[0.95rem] font-semibold ${on ? "border-maroon-deep bg-maroon-deep text-white" : "border-line bg-card text-ink"}`}
     >
       <span>{label}</span>
       <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em]">

@@ -119,7 +119,7 @@ export default async function NutritionPage() {
               </details>
             ))}
           </div>
-          <Link className="btn btn-ghost btn-sm" href={`/events/${upcomingEvent.id}`}>Event preparation</Link>
+          <Link className="btn btn-ghost btn-sm" href={`/events/${upcomingEvent.id}/prep?from=${encodeURIComponent("/nutrition")}`}>Open Race Prep</Link>
         </section>
       ) : null}
 

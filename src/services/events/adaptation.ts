@@ -5,6 +5,14 @@
 
 import type { EventPriority } from "./catalog";
 import { formatDistanceKm } from "./catalog";
+import {
+  allowedSportsDuringTaper,
+  dayBeforeEvent,
+  eventDateSpan as policyEventSpan,
+  eventLocalDate,
+  isSportAllowedOnDate,
+  type PolicyEvent,
+} from "./policy";
 import { individualizeTaper, isInTaperWindow, volumeScaleForTaperDay } from "./taper";
 
 /** Loose event shape accepted by adaptation helpers (matches engine PlanningEventRef). */
@@ -21,7 +29,29 @@ export type AdaptationEvent = {
   goalTimeSeconds?: number | null;
   sports?: Array<"running" | "cycling" | "swimming" | "strength">;
   endsOn?: string | null;
+  localStartsOn?: string | null;
+  templateSlug?: string | null;
+  timezone?: string | null;
 };
+
+function asPolicyEvent(event: AdaptationEvent): PolicyEvent {
+  return {
+    id: event.id,
+    name: event.name,
+    startsOn: event.startsOn,
+    endsOn: event.endsOn,
+    localStartsOn: event.localStartsOn,
+    priority: event.priority,
+    discipline: event.discipline,
+    distanceM: event.distanceM,
+    swimM: event.swimM,
+    bikeM: event.bikeM,
+    runM: event.runM,
+    sports: event.sports,
+    templateSlug: event.templateSlug,
+    timezone: event.timezone,
+  };
+}
 
 export type AdaptationType =
   | "event_day_replace"
@@ -156,16 +186,7 @@ export function buildEventDaySession(event: AdaptationEvent, date: string): Even
 }
 
 export function eventDateSpan(event: AdaptationEvent): string[] {
-  const end = event.endsOn && event.endsOn >= event.startsOn ? event.endsOn : event.startsOn;
-  const dates: string[] = [];
-  let cursor = event.startsOn;
-  while (cursor <= end && dates.length < 21) {
-    dates.push(cursor);
-    const next = new Date(`${cursor}T00:00:00Z`);
-    next.setUTCDate(next.getUTCDate() + 1);
-    cursor = next.toISOString().slice(0, 10);
-  }
-  return dates;
+  return policyEventSpan(asPolicyEvent(event));
 }
 
 /**
@@ -229,6 +250,7 @@ export function proposeEventDayReplacements(
 
 /**
  * Propose taper adjustments for workouts before an event.
+ * Shared policy: day-before recovery-only, pause unrelated sports, then volume/intensity cuts.
  * Does not stack hard days; never increases volume to compensate.
  */
 export function proposeTaperAdaptations(
@@ -236,42 +258,59 @@ export function proposeTaperAdaptations(
   event: AdaptationEvent,
   options?: { templateSlug?: string | null; experienceLevel?: string | null; readinessOverall?: number | null },
 ): AdaptationProposal[] {
-  const daysUntil = Math.max(
-    0,
-    Math.round((Date.parse(`${event.startsOn}T00:00:00Z`) - Date.parse(`${workouts[0]?.date ?? event.startsOn}T00:00:00Z`)) / 86_400_000),
-  );
-  // Compute from event and a synthetic "today" = earliest future workout or event-14
-  const future = workouts.filter((w) => w.date < event.startsOn && w.status !== "completed");
+  const policyEvent = asPolicyEvent({ ...event, templateSlug: options?.templateSlug ?? event.templateSlug });
+  const eventStart = eventLocalDate(policyEvent);
+  const future = workouts.filter((w) => w.date < eventStart && w.status !== "completed");
   if (!future.length) return [];
 
   const todayProxy = future.map((w) => w.date).sort()[0];
   const taper = individualizeTaper({
-    templateSlug: options?.templateSlug ?? null,
+    templateSlug: options?.templateSlug ?? event.templateSlug ?? null,
     discipline: event.discipline,
     distanceM: event.distanceM ?? null,
     priority: event.priority,
     experienceLevel: options?.experienceLevel,
     readinessOverall: options?.readinessOverall,
-    daysUntilEvent: Math.max(0, Math.round((Date.parse(`${event.startsOn}T00:00:00Z`) - Date.parse(`${todayProxy}T00:00:00Z`)) / 86_400_000)),
+    daysUntilEvent: Math.max(0, Math.round((Date.parse(`${eventStart}T00:00:00Z`) - Date.parse(`${todayProxy}T00:00:00Z`)) / 86_400_000)),
   });
-
-  if (taper.minimal && event.priority === "practice") {
-    // Practice races: only replace a suitable session on event day (handled elsewhere).
-    return [];
-  }
 
   const proposals: AdaptationProposal[] = [];
   const eventDates = new Set(eventDateSpan(event));
+  const recoveryDate = dayBeforeEvent(policyEvent);
+  const allowedInTaper = new Set(allowedSportsDuringTaper(policyEvent));
 
   for (const workout of future) {
     if (eventDates.has(workout.date)) continue;
-    if (!isInTaperWindow(workout.date, event.startsOn, taper.taperDays)) continue;
 
-    const scale = volumeScaleForTaperDay(workout.date, event.startsOn, taper);
-    const daysOut = Math.round((Date.parse(`${event.startsOn}T00:00:00Z`) - Date.parse(`${workout.date}T00:00:00Z`)) / 86_400_000);
-
-    // Day before A/B: rest or optional shakeout
-    if (daysOut === 1 && event.priority !== "practice" && isHard(workout)) {
+    // Day before every active race: recovery-only (including practice).
+    if (workout.date === recoveryDate) {
+      if (workout.sport === "recovery" || workout.sport === "mobility") {
+        if (workout.intensity !== "recovery" && isHard(workout)) {
+          proposals.push({
+            adaptationType: "reduce_intensity",
+            originalWorkoutId: workout.id,
+            original: {
+              date: workout.date,
+              title: workout.title,
+              sport: workout.sport,
+              durationMin: workout.durationMin,
+              intensity: workout.intensity,
+            },
+            proposed: {
+              date: workout.date,
+              title: "Gentle mobility",
+              sport: "mobility",
+              durationMin: Math.min(30, workout.durationMin),
+              intensity: "recovery",
+              why: `Recovery day before ${event.name}.`,
+            },
+            explanation: `Keep only gentle mobility the day before ${event.name}.`,
+            expectedImpact: "Protects race-day freshness.",
+            idempotencyKey: `recovery-day-soft:${event.id}:${workout.id}`,
+          });
+        }
+        continue;
+      }
       proposals.push({
         adaptationType: "replace",
         originalWorkoutId: workout.id,
@@ -284,20 +323,49 @@ export function proposeTaperAdaptations(
         },
         proposed: {
           date: workout.date,
-          title: "Optional shakeout",
-          sport: workout.sport === "strength" || workout.sport === "bodybuilding" ? "mobility" : workout.sport,
-          durationMin: Math.min(30, Math.max(15, Math.round(workout.durationMin * 0.35))),
+          title: "Recovery day",
+          sport: "recovery",
+          durationMin: 20,
           intensity: "recovery",
-          why: `Pre-event shakeout before ${event.name}.`,
+          why: `Day before ${event.name}: rest or optional gentle mobility only.`,
         },
-        explanation: `Replace hard session "${workout.title}" with an optional shakeout the day before ${event.name}.`,
-        expectedImpact: "Lowers pre-race fatigue without stacking compensatory hard work elsewhere.",
-        idempotencyKey: `taper-shakeout:${event.id}:${workout.id}`,
+        explanation: `Day before ${event.name} is recovery-only. "${workout.title}" (${workout.sport}) is paused — no runs, strength, cycling, swimming, tests, or makeup sessions.`,
+        expectedImpact: "Friday-before / day-before protection applied immediately for freshness.",
+        idempotencyKey: `recovery-day:${event.id}:${workout.id}`,
       });
       continue;
     }
 
-    // Heavy lower / quality in taper → reduce
+    if (!isInTaperWindow(workout.date, eventStart, taper.taperDays)) continue;
+
+    // Practice races: shorter prep window — keep day-before/race-day only.
+    if (taper.minimal && event.priority === "practice") continue;
+
+    // Pause unrelated sports during the event-specific taper.
+    if (!isSportAllowedOnDate(workout.sport, workout.date, policyEvent, taper.taperDays)
+      || !allowedInTaper.has(workout.sport)) {
+      proposals.push({
+        adaptationType: "remove",
+        originalWorkoutId: workout.id,
+        original: {
+          date: workout.date,
+          title: workout.title,
+          sport: workout.sport,
+          durationMin: workout.durationMin,
+          intensity: workout.intensity,
+        },
+        proposed: null,
+        explanation: `Paused during ${event.name} taper: "${workout.title}" (${workout.sport}) is unrelated to this priority event. Race-specific and recovery sessions continue.`,
+        expectedImpact: "Keeps the taper focused; completed history is unchanged. Session can return after the event.",
+        idempotencyKey: `taper-pause:${event.id}:${workout.id}`,
+      });
+      continue;
+    }
+
+    const scale = volumeScaleForTaperDay(workout.date, eventStart, taper);
+    const daysOut = Math.round((Date.parse(`${eventStart}T00:00:00Z`) - Date.parse(`${workout.date}T00:00:00Z`)) / 86_400_000);
+
+    // Heavy / quality in taper → reduce (approval workflow for broader volume cuts)
     if (isHard(workout)) {
       const nextDuration = Math.max(20, Math.round(workout.durationMin * scale));
       const nextIntensity = taper.keepIntensity && daysOut > 3 && ["tempo", "threshold"].includes(workout.intensity)
@@ -339,13 +407,14 @@ export function proposeTaperAdaptations(
     }
   }
 
-  void daysUntil;
   return proposals;
 }
 
 /**
- * Apply event-day sessions into a planned session list (for buildPlan).
- * Removes non-event sessions on event dates; inserts event sessions.
+ * Apply shared event scheduling policy into a planned session list (for buildPlan).
+ * - Event days → competition session only
+ * - Day before → recovery / optional mobility only
+ * - Taper → pause unrelated sports
  */
 export function applyEventDaysToSessions<T extends {
   date: string;
@@ -367,20 +436,75 @@ export function applyEventDaysToSessions<T extends {
 }>(
   sessions: T[],
   events: AdaptationEvent[],
+  options?: { experienceLevel?: string | null; readinessOverall?: number | null },
 ): T[] {
   if (!events.length) return sessions;
   const eventDates = new Map<string, AdaptationEvent>();
+  const recoveryDates = new Map<string, AdaptationEvent>();
+  const rank = { primary: 0, secondary: 1, practice: 2 } as const;
+
   for (const event of events) {
+    const policy = asPolicyEvent(event);
     for (const date of eventDateSpan(event)) {
-      // Prefer higher priority if two events somehow share a day
       const existing = eventDates.get(date);
-      const rank = { primary: 0, secondary: 1, practice: 2 } as const;
       if (!existing || rank[event.priority] < rank[existing.priority]) {
         eventDates.set(date, event);
       }
     }
+    const recovery = dayBeforeEvent(policy);
+    if (!eventDates.has(recovery)) {
+      const existing = recoveryDates.get(recovery);
+      if (!existing || rank[event.priority] < rank[existing.priority]) {
+        recoveryDates.set(recovery, event);
+      }
+    }
   }
-  const filtered = sessions.filter((session) => !eventDates.has(session.date));
+
+  const taperByEvent = new Map(
+    events.map((event) => {
+      const policy = asPolicyEvent(event);
+      const taper = individualizeTaper({
+        templateSlug: event.templateSlug ?? null,
+        discipline: event.discipline,
+        distanceM: event.distanceM ?? null,
+        priority: event.priority,
+        experienceLevel: options?.experienceLevel,
+        readinessOverall: options?.readinessOverall,
+        daysUntilEvent: Math.max(
+          0,
+          Math.round((Date.parse(`${eventLocalDate(policy)}T00:00:00Z`) - Date.parse(`${sessions[0]?.date ?? eventLocalDate(policy)}T00:00:00Z`)) / 86_400_000),
+        ),
+      });
+      return [event.id, { event: policy, taperDays: taper.taperDays }] as const;
+    }),
+  );
+
+  const filtered: T[] = [];
+  for (const session of sessions) {
+    if (eventDates.has(session.date)) continue;
+    if (recoveryDates.has(session.date)) {
+      if (session.sport === "recovery" || session.sport === "mobility") {
+        filtered.push({
+          ...session,
+          intensity: "recovery" as T["intensity"],
+          phase: "taper",
+          why: `${session.why} Day-before recovery protection.`,
+          structure: { ...session.structure, recoveryOnly: true },
+        });
+      }
+      continue;
+    }
+    let paused = false;
+    for (const { event, taperDays } of taperByEvent.values()) {
+      if (!isSportAllowedOnDate(session.sport, session.date, event, taperDays)) {
+        paused = true;
+        break;
+      }
+    }
+    if (paused) continue;
+    filtered.push(session);
+  }
+
   const inserted: T[] = [];
   for (const [date, event] of eventDates) {
     const day = buildEventDaySession(event, date);
@@ -403,6 +527,32 @@ export function applyEventDaysToSessions<T extends {
       exercises: [],
     } as unknown as T);
   }
+
+  for (const [date, event] of recoveryDates) {
+    if (eventDates.has(date)) continue;
+    if (filtered.some((session) => session.date === date && (session.sport === "recovery" || session.sport === "mobility"))) {
+      continue;
+    }
+    inserted.push({
+      date,
+      sport: "recovery" as T["sport"],
+      title: "Recovery day",
+      objective: `Day before ${event.name}`,
+      durationMin: 20,
+      intensity: "recovery" as T["intensity"],
+      expectedLoad: 8,
+      importance: "optional" as T["importance"],
+      recoveryHours: 12,
+      why: `Day before ${event.name}: rest or optional gentle mobility only.`,
+      lowerBody: false,
+      quality: false,
+      phase: "taper",
+      structure: { recoveryOnly: true, eventId: event.id },
+      zones: {},
+      exercises: [],
+    } as unknown as T);
+  }
+
   return [...filtered, ...inserted].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
 

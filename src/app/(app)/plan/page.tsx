@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AboutDisclosure } from "@/components/about-disclosure";
 import { PageFrame } from "@/components/page";
 import { EmptyState } from "@/components/states";
@@ -69,9 +70,14 @@ export default async function PlanPage({ searchParams }: { searchParams: Promise
           <p className="eyebrow">Upcoming events</p>
           <ul className="grid gap-2">
             {upcomingEvents.map((event) => (
-              <li key={event.id} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                <span className="font-semibold">{event.name}</span>
-                <span className="metric text-muted">{daysUntil(event.starts_on, today)}d · {event.priority ?? "primary"}</span>
+              <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <span className="font-semibold">{event.name}</span>
+                  <span className="metric text-muted"> · {daysUntil(event.starts_on, today)}d · {event.priority ?? "primary"}</span>
+                </div>
+                <Link className="btn btn-soft btn-sm" href={`/events/${event.id}/prep?from=${encodeURIComponent("/plan")}`}>
+                  Race Prep
+                </Link>
               </li>
             ))}
           </ul>

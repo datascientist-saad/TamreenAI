@@ -17,9 +17,11 @@ import { InsightCard } from "@/components/ui/insight-card";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
 import { WorkoutCard } from "@/components/ui/workout-card";
 import { ReadinessCard } from "@/features/dashboard/readiness-card";
+import { RacePrepCard } from "@/features/events/race-prep-card";
 import { ProposedChangesPanel } from "@/features/plan/proposed-changes";
 import { WhoopMetrics } from "@/features/whoop/metrics";
 import { greeting, shiftIsoDate, sportLabel } from "@/lib/utils";
+import type { RacePrepSnapshot } from "@/services/events/race-prep";
 import type { WhoopMetricView } from "@/services/wearables/whoop";
 
 type TodayWorkout = {
@@ -74,7 +76,8 @@ export type HomeDashboardProps = {
   points: Array<{ day: string; load: number }>;
   target: number;
   event: { id: string; event_type: string; name: string; days: number; priority?: string | null; phase?: string | null } | null;
-  events?: Array<{ id: string; event_type: string; name: string; days: number; priority?: string | null; phase?: string | null }>;
+  events?: Array<{ id: string; event_type: string; name: string; days: number; priority?: string | null; phase?: string | null; racePrep?: RacePrepSnapshot | null }>;
+  racePrepEvent?: { id: string; racePrep: RacePrepSnapshot | null } | null;
   insight: { id: string; title: string; body: string; factors: unknown; proposed_changes?: unknown } | null;
   conflict: { title: string; explanation: string } | null;
   whoop: { status: string; metrics: WhoopMetricView[] } | null;
@@ -102,6 +105,7 @@ export function HomeDashboard({
   whoop,
   event,
   events = [],
+  racePrepEvent = null,
   recovery = null,
 }: HomeDashboardProps) {
   const router = useRouter();
@@ -176,6 +180,32 @@ export function HomeDashboard({
       <ReadinessCard readiness={readiness} />
       {readiness?.blocked_for_safety ? <SafetyBanner /> : null}
 
+      {(() => {
+        const fromList = activeEvents.find((item): item is typeof item & { racePrep: RacePrepSnapshot } =>
+          "racePrep" in item && Boolean(item.racePrep),
+        );
+        const prep: RacePrepSnapshot | null = racePrepEvent?.racePrep ?? fromList?.racePrep ?? null;
+        const prepEventId = racePrepEvent?.id ?? fromList?.id ?? null;
+        if (!prep || !prepEventId) return null;
+        const featured = prep.phase === "race_day" || prep.daysUntil <= 1;
+        return (
+          <RacePrepCard
+            featured={featured}
+            model={{
+              eventId: prepEventId,
+              eventName: prep.eventName,
+              cardTitle: prep.cardTitle,
+              cardSubtitle: prep.cardSubtitle,
+              countdownLabel: prep.countdownLabel,
+              startLabel: prep.startLabel,
+              checklistProgress: prep.checklistProgress,
+              phase: prep.phase,
+              from: "/home",
+            }}
+          />
+        );
+      })()}
+
       {recovery ? (
         <section className="app-card grid gap-3 border-l-2 border-l-maroon p-4">
           <div className="flex items-start justify-between gap-2">
@@ -225,7 +255,7 @@ export function HomeDashboard({
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link className="btn btn-primary" href={`/events/${todayEvent.id}`}>Event preparation</Link>
+              <Link className="btn btn-primary" href={`/events/${todayEvent.id}/prep?from=${encodeURIComponent("/home")}`}>Open Race Prep</Link>
               <Link className="btn btn-ghost" href="/nutrition">Race nutrition</Link>
             </div>
           </article>

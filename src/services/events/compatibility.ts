@@ -7,6 +7,7 @@
 import type { EventPriority } from "./catalog";
 import type { PlanningEvent } from "./multi-event";
 import { detectEventConflicts } from "./multi-event";
+import { detectScheduleOverlaps } from "./policy";
 
 export type CompatibilityStatus = "Compatible" | "Needs Attention" | "High Conflict";
 
@@ -47,6 +48,15 @@ export function evaluateEventCompatibility(events: PlanningEvent[]): Compatibili
       title: base.title,
       detail: base.detail,
       eventIds: sorted.map((e) => e.id),
+    });
+  }
+
+  for (const overlap of detectScheduleOverlaps(sorted)) {
+    findings.push({
+      severity: overlap.severity,
+      title: overlap.title,
+      detail: `${overlap.detail} Overlap dates: ${overlap.dates.join(", ")}.`,
+      eventIds: overlap.eventIds,
     });
   }
 
