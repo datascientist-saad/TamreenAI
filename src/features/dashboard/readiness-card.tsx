@@ -32,9 +32,36 @@ export function ReadinessCard({
     : tone === "low" ? "text-danger"
     : "text-maroon";
 
+  if (compact) {
+    return (
+      <Link
+        href={score == null ? "/recovery?tab=checkin" : "/recovery"}
+        className="app-card flex min-h-12 items-center gap-3 px-3 py-2.5 transition-colors hover:bg-elevated focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-maroon"
+        aria-label={
+          score == null
+            ? "Readiness incomplete. Complete a check-in."
+            : `Readiness ${Math.round(score)} out of 100. ${label}.`
+        }
+      >
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-maroon-soft text-maroon">
+          <Activity size={16} strokeWidth={1.75} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-sm font-semibold text-ink">Readiness</span>
+            <span className={cn("metric text-sm font-semibold", toneClass)}>
+              {score == null ? "—" : `${Math.round(score)}`}
+            </span>
+            <span className="text-sm text-muted">· {label}</span>
+          </span>
+        </span>
+      </Link>
+    );
+  }
+
   return (
     <article className="app-card min-w-0 p-4">
-      <div className={cn("grid gap-4", !compact && "sm:grid-cols-[auto_1fr] sm:items-center")}>
+      <div className="grid gap-4 sm:grid-cols-[auto_1fr] sm:items-center">
         <ReadinessRing score={score} tone={tone} />
         <div className="min-w-0">
           <p className="eyebrow">Today&apos;s readiness</p>
@@ -49,15 +76,13 @@ export function ReadinessCard({
         </div>
       </div>
 
-      {!compact ? (
-        <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <Metric icon={Moon} label="Sleep" value={readiness?.sleep} />
-          <Metric icon={Battery} label="Recovery" value={readiness?.recovery} />
-          <Metric icon={Activity} label="Load" value={readiness?.recent_load} />
-          <Metric icon={HeartPulse} label="Muscle" value={readiness?.muscle_fatigue} />
-          <Metric icon={Brain} label="Cardio" value={readiness?.cardio_fatigue} className="col-span-2 sm:col-span-1" />
-        </dl>
-      ) : null}
+      <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <Metric icon={Moon} label="Sleep" value={readiness?.sleep} />
+        <Metric icon={Battery} label="Recovery" value={readiness?.recovery} />
+        <Metric icon={Activity} label="Load" value={readiness?.recent_load} />
+        <Metric icon={HeartPulse} label="Muscle" value={readiness?.muscle_fatigue} />
+        <Metric icon={Brain} label="Cardio" value={readiness?.cardio_fatigue} className="col-span-2 sm:col-span-1" />
+      </dl>
 
       {score == null ? (
         <Link className="btn btn-primary mt-4 w-full" href="/recovery?tab=checkin">Complete a check-in</Link>

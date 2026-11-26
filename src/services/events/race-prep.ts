@@ -40,6 +40,26 @@ export type FuelSlot = {
   notes?: string | null;
 };
 
+/** Kit packing items shown as "N of 5 packed" on Today and under Prepare. */
+export const RACE_KIT_IDS = [
+  "collect_bib",
+  "confirm_transport",
+  "pack_kit",
+  "pack_fuel",
+  "choose_breakfast",
+] as const;
+
+export type RaceKitId = (typeof RACE_KIT_IDS)[number];
+
+export type KitProgress = {
+  done: number;
+  total: number;
+  label: string;
+  ready: boolean;
+  next: ChecklistItem | null;
+  items: ChecklistItem[];
+};
+
 export type RacePrepSnapshot = {
   eventId: string;
   eventName: string;
@@ -47,17 +67,26 @@ export type RacePrepSnapshot = {
   section: "prepare" | "fuel" | "race_day" | "recover";
   daysUntil: number;
   countdownLabel: string;
+  /** Static screen-reader label — does not tick every minute. */
+  countdownAnnounce: string;
   startLabel: string | null;
+  /** Short local start like "Sat, 6:00 a.m." */
+  startTimeLabel: string | null;
+  /** Friendly zone like "Doha time". */
+  timeZoneDisplay: string | null;
   timeZoneLabel: string | null;
   needsStartTime: boolean;
+  eventDateLabel: string;
   nextTask: ChecklistItem | TimelineItem | null;
   checklist: ChecklistItem[];
   checklistProgress: { done: number; total: number };
+  kitProgress: KitProgress;
   timeline: TimelineItem[];
   fuel: FuelSlot[];
   scheduleNotes: string[];
   cardTitle: string;
   cardSubtitle: string;
+  imageUrl?: string | null;
 };
 
 function addMinutes(iso: string, minutes: number): string {
@@ -66,6 +95,142 @@ function addMinutes(iso: string, minutes: number): string {
 
 function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+const ZONE_CITY: Record<string, string> = {
+  "Asia/Qatar": "Doha",
+  "Asia/Dubai": "Dubai",
+  "Asia/Riyadh": "Riyadh",
+  "Asia/Kuwait": "Kuwait",
+  "Asia/Bahrain": "Bahrain",
+  "Asia/Muscat": "Muscat",
+  "Asia/Singapore": "Singapore",
+  "Europe/London": "London",
+  "Europe/Paris": "Paris",
+  "America/New_York": "New York",
+  "America/Los_Angeles": "Los Angeles",
+  "America/Chicago": "Chicago",
+  "Australia/Sydney": "Sydney",
+  UTC: "UTC",
+};
+
+export function timeZoneDisplayName(timeZone: string | null | undefined): string | null {
+  if (!timeZone) return null;
+  const city = ZONE_CITY[timeZone] ?? timeZone.split("/").pop()?.replace(/_/g, " ") ?? timeZone;
+  return `${city} time`;
+}
+
+/**
+ * Local start for athlete-facing copy: "Sat, 6:00 a.m."
+ * Prefers wave/event starts_at; returns null when missing.
+ */
+export function formatLocalStartTime(
+  startsAt: string | null | undefined,
+  timeZone: string | null | undefined,
+): string | null {
+  if (!startsAt) return null;
+  const zone = timeZone || "UTC";
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(new Date(startsAt));
+    const time = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(startsAt));
+    // Normalize "AM"/"PM" → "a.m."/"p.m."
+    const normalized = time.replace(/\s?AM/i, " a.m.").replace(/\s?PM/i, " p.m.").replace(/\s+/g, " ").trim();
+    return `${weekday}, ${normalized}`;
+  } catch {
+    return null;
+  }
+}
+
+export function formatEventDateLabel(eventDate: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(`${eventDate}T12:00:00Z`));
+  } catch {
+    return eventDate;
+  }
+}
+
+/**
+ * Countdown from wave/event start. Days when >24h away; hours/minutes inside 24h.
+ * No seconds. Callers should avoid live aria-live ticks every minute.
+ */
+export function formatRaceCountdown(input: {
+  startsAt: string | null | undefined;
+  eventDate: string;
+  now?: Date;
+  timeZone?: string | null;
+}): { label: string; announce: string; started: boolean; within24h: boolean } {
+  const now = input.now ?? new Date();
+  if (!input.startsAt) {
+    const days = daysBetween(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: input.timeZone || "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(now),
+      input.eventDate,
+    );
+    if (days > 1) {
+      const label = `${days} days left`;
+      return { label, announce: label, started: false, within24h: false };
+    }
+    if (days === 1) return { label: "1 day left", announce: "1 day left", started: false, within24h: false };
+    if (days === 0) return { label: "Race day", announce: "Race day — add start time", started: false, within24h: true };
+    return { label: "Add start time", announce: "Start time missing", started: true, within24h: false };
+  }
+
+  const ms = Date.parse(input.startsAt) - now.getTime();
+  if (ms <= 0) {
+    return { label: "Race underway", announce: "Race has started", started: true, within24h: true };
+  }
+
+  const hoursTotal = ms / 3_600_000;
+  if (hoursTotal > 24) {
+    const days = Math.ceil(hoursTotal / 24);
+    const label = days === 1 ? "1 day left" : `${days} days left`;
+    return { label, announce: label, started: false, within24h: false };
+  }
+
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
+  let label: string;
+  if (hours <= 0) label = `${minutes} min left`;
+  else if (minutes <= 0) label = `${hours}h left`;
+  else label = `${hours}h ${minutes}m left`;
+  return { label, announce: label, started: false, within24h: true };
+}
+
+export function kitItemsFromChecklist(checklist: ChecklistItem[]): ChecklistItem[] {
+  const order = new Map<string, number>(RACE_KIT_IDS.map((id, index) => [id, index]));
+  return checklist
+    .filter((item) => order.has(item.id))
+    .sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99));
+}
+
+export function computeKitProgress(checklist: ChecklistItem[]): KitProgress {
+  const items = kitItemsFromChecklist(checklist);
+  const done = items.filter((item) => item.done).length;
+  const total = items.length || RACE_KIT_IDS.length;
+  const next = items.find((item) => !item.done) ?? null;
+  const ready = items.length > 0 && done === items.length;
+  return {
+    done,
+    total,
+    label: ready ? "Kit ready" : `${done} of ${total} packed`,
+    ready,
+    next,
+    items,
+  };
 }
 
 export function defaultChecklist(priority: EventPriority): ChecklistItem[] {
@@ -211,7 +376,12 @@ export function buildRaceDayTimeline(input: {
   if (input.estimatedDurationMin && input.estimatedDurationMin > 0) {
     items.push(mark("finish", "Estimated finish window", addMinutes(start, input.estimatedDurationMin), input.estimatedDurationMin));
   }
-  return items;
+  return items.sort((a, b) => {
+    if (a.at && b.at) return Date.parse(a.at) - Date.parse(b.at);
+    if (a.at) return -1;
+    if (b.at) return 1;
+    return 0;
+  });
 }
 
 export function defaultFuelSlots(input: {
@@ -344,7 +514,9 @@ export function buildRacePrepSnapshot(input: {
     input.fuel,
   );
 
-  const nextChecklist = checklist.find((item) => !item.done && (phase === "race_day" ? item.section === "race_day" || item.section === "fuel" : item.section === section || (phase === "prepare" && item.section === "prepare")))
+  const kitProgress = computeKitProgress(checklist);
+  const nextChecklist = kitProgress.next
+    ?? checklist.find((item) => !item.done && (phase === "race_day" ? item.section === "race_day" || item.section === "fuel" : item.section === section || (phase === "prepare" && item.section === "prepare")))
     ?? checklist.find((item) => !item.done)
     ?? null;
   const nextTimeline = phase === "race_day" ? timeline.find((item) => !item.done && item.id !== "add_start") ?? timeline.find((item) => !item.done) ?? null : null;
@@ -360,10 +532,16 @@ export function buildRacePrepSnapshot(input: {
   });
 
   let cardTitle = "Race Prep";
-  let cardSubtitle = nextTask && "label" in nextTask ? `Next: ${nextTask.label}` : "Open checklist";
+  let cardSubtitle = kitProgress.ready
+    ? "Kit ready"
+    : kitProgress.next
+      ? `Up next: ${kitProgress.next.label}`
+      : nextTask && "label" in nextTask
+        ? `Next: ${nextTask.label}`
+        : "Open checklist";
   if (phase === "fuel" && daysUntil === 1) {
     cardTitle = "Recovery Day";
-    cardSubtitle = "Packing and fueling preparation";
+    cardSubtitle = kitProgress.ready ? "Kit ready · fueling prep" : "Packing and fueling preparation";
   } else if (phase === "race_day") {
     cardTitle = "Race Day";
     cardSubtitle = nextTask && "label" in nextTask ? `Next: ${nextTask.label}` : "Follow your timeline";
@@ -375,13 +553,14 @@ export function buildRacePrepSnapshot(input: {
     cardSubtitle = input.hasRecoveryCheckIn ? "Gradual return to your sports" : "How do you feel after the race?";
   }
 
-  const countdownLabel = daysUntil > 1
-    ? `${daysUntil} days`
-    : daysUntil === 1
-      ? "Tomorrow"
-      : daysUntil === 0
-        ? "Today"
-        : `${Math.abs(daysUntil)}d ago`;
+  const countdown = formatRaceCountdown({
+    startsAt: input.event.startsAt ?? null,
+    eventDate,
+    timeZone: input.event.timezone,
+  });
+  const startTimeLabel = formatLocalStartTime(input.event.startsAt ?? null, input.event.timezone);
+  const timeZoneDisplay = timeZoneDisplayName(input.event.timezone);
+  const eventDateLabel = formatEventDateLabel(eventDate);
 
   return {
     eventId: input.event.id,
@@ -389,13 +568,20 @@ export function buildRacePrepSnapshot(input: {
     phase,
     section,
     daysUntil,
-    countdownLabel,
-    startLabel: timeLabel,
+    countdownLabel: countdown.label,
+    countdownAnnounce: countdown.announce,
+    startLabel: startTimeLabel
+      ? (timeZoneDisplay ? `${startTimeLabel} · ${timeZoneDisplay}` : startTimeLabel)
+      : timeLabel,
+    startTimeLabel,
+    timeZoneDisplay,
     timeZoneLabel: zoneLabel,
     needsStartTime: !input.event.startsAt,
+    eventDateLabel,
     nextTask,
     checklist,
     checklistProgress: { done, total: checklist.length },
+    kitProgress,
     timeline,
     fuel,
     scheduleNotes: input.scheduleNotes ?? [
@@ -404,6 +590,7 @@ export function buildRacePrepSnapshot(input: {
     ],
     cardTitle,
     cardSubtitle,
+    imageUrl: null,
   };
 }
 
