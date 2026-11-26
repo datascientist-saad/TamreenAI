@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bike, Dumbbell, Footprints, Trophy, Waves } from "lucide-react";
 import { TimeFields } from "@/components/time-fields";
+import { useUnsavedGuard } from "@/components/unsaved-guard";
 import { clockFromParts, parsePaceList } from "@/lib/utils";
 import {
   EVENT_CATEGORIES,
@@ -38,7 +39,13 @@ type EventFormValues = {
   eventType?: string;
 };
 
-export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {}) {
+export function PersonalEventForm({
+  initial,
+  returnTo,
+}: {
+  initial?: EventFormValues;
+  returnTo?: string | null;
+} = {}) {
   const router = useRouter();
   const editing = Boolean(initial?.id);
   const initialCategory = initial?.category ?? (initial?.eventType ? categoryForEventType(initial.eventType) : "running");
@@ -48,9 +55,11 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
   const [bikeKm, setBikeKm] = useState(metresToKmInput(initial?.bikeM));
   const [runKm, setRunKm] = useState(metresToKmInput(initial?.runM ?? initial?.distanceM));
   const [distanceKm, setDistanceKm] = useState(metresToKmInput(initial?.distanceM));
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  useUnsavedGuard(dirty && !pending);
 
   const preview = useMemo(() => distancesFromPreset({
     category,
@@ -84,6 +93,8 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
   return (
     <form
       className="app-card grid gap-4 p-4"
+      onInput={() => setDirty(true)}
+      onChange={() => setDirty(true)}
       onSubmit={async (event) => {
         event.preventDefault();
         if (pending) return;
@@ -128,9 +139,15 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
               setError(result.message);
               return;
             }
+            setDirty(false);
             setMessage(result.proposalCreated
-              ? "Event updated. Review proposed plan changes on Home before they fully apply."
+              ? "Event updated. Review proposed plan changes on Today before they fully apply."
               : "Event updated. Event-day blocking is active.");
+            if (returnTo) {
+              router.push(returnTo);
+              router.refresh();
+              return;
+            }
           } else {
             const result = await createPersonalEvent(payload);
             if (!result.ok) {
@@ -138,11 +155,12 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
               return;
             }
             form.reset();
+            setDirty(false);
             const priorityNote = "priorityRecommended" in result && result.priorityRecommended
               ? ` Suggested priority: ${result.priorityRecommended}.`
               : "";
             setMessage(result.proposalCreated
-              ? `Event saved.${priorityNote} Review proposed training changes on Home. Event day already blocks ordinary workouts.`
+              ? `Event saved.${priorityNote} Review proposed training changes on Today. Event day already blocks ordinary workouts.`
               : `Event saved.${priorityNote} Event day blocks ordinary workouts.`);
           }
           router.refresh();
@@ -275,9 +293,26 @@ export function PersonalEventForm({ initial }: { initial?: EventFormValues } = {
 
       {message ? <p className="text-sm font-semibold text-maroon" role="status">{message}</p> : null}
       {error ? <p className="text-sm text-live" role="alert">{error}</p> : null}
-      <button className="btn btn-primary" type="submit" disabled={pending} aria-busy={pending}>
-        {pending ? "Saving…" : editing ? "Save event changes" : "Save event"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" type="submit" disabled={pending} aria-busy={pending}>
+          {pending ? "Saving…" : editing ? "Save event changes" : "Save event"}
+        </button>
+        {editing ? (
+          <button
+            className="btn btn-ghost"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              if (dirty && !window.confirm("Discard unsaved edits?")) return;
+              setDirty(false);
+              if (returnTo) router.push(returnTo);
+              else router.push("/events");
+            }}
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }

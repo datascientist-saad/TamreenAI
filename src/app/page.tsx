@@ -17,6 +17,12 @@ const sections = [
 export default function LandingPage() {
   return (
     <div className="min-w-0 bg-paper text-ink">
+      <a
+        href="#main"
+        className="absolute left-4 top-4 z-[100] -translate-y-[200%] rounded-md bg-card px-4 py-2 font-bold text-maroon outline outline-2 outline-offset-2 outline-maroon transition focus:translate-y-0"
+      >
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-40 border-b border-line bg-card/95 text-ink backdrop-blur safe-top">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
@@ -35,6 +41,7 @@ export default function LandingPage() {
         </div>
       </header>
 
+      <main id="main">
       <section className="relative overflow-hidden border-b border-line bg-gradient-to-br from-maroon-deep via-[#5a1630] to-maroon px-4 pb-16 pt-10 text-center text-white sm:px-6 sm:pb-24 sm:pt-16">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_55%)]" aria-hidden />
         <div className="relative mx-auto w-fit overflow-hidden rounded-3xl shadow-lg ring-1 ring-white/20">
@@ -77,6 +84,7 @@ export default function LandingPage() {
         <h2 className="text-balance text-3xl font-extrabold sm:text-4xl">Train the whole athlete.</h2>
         <Link className="btn btn-gold mt-6" href="/signup">Start training</Link>
       </section>
+      </main>
 
       <footer className="border-t border-line bg-card px-4 py-8 text-center text-sm text-muted sm:px-6">
         <p>© {new Date().getFullYear()} Tamreen AI. Hybrid athlete training.</p>

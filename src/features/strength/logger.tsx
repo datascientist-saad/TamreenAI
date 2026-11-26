@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Timer } from "lucide-react";
+import { clearActiveWorkout, readActiveWorkout, writeActiveWorkout } from "@/lib/active-workout";
 import { displayToKg, kgToDisplay } from "@/lib/utils";
 import { PostWorkoutFeedback, feedbackFromForm } from "@/features/training/post-workout-feedback";
 import { logStrength } from "@/server/actions";
@@ -43,9 +44,48 @@ export function StrengthLogger({
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
   const [sets, setSets] = useState<DraftSet[]>([]);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [finishing, setFinishing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      startTransition(() => {
+        if (workoutId) {
+          const draft = readActiveWorkout();
+          if (draft && draft.workoutId === workoutId && draft.sets.length) {
+            setSets(draft.sets);
+            setActiveIndex(Math.min(draft.activeIndex, Math.max(0, exercises.length - 1)));
+          }
+        }
+        setReady(true);
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [workoutId, exercises.length]);
+
+  useEffect(() => {
+    if (!ready || !workoutId) return;
+    if (sets.length === 0) {
+      clearActiveWorkout(workoutId);
+      window.dispatchEvent(new Event("tamreen-active-workout"));
+      return;
+    }
+    writeActiveWorkout({
+      workoutId,
+      title,
+      activeIndex,
+      sets,
+      updatedAt: new Date().toISOString(),
+    });
+    window.dispatchEvent(new Event("tamreen-active-workout"));
+  }, [activeIndex, ready, sets, title, workoutId]);
   const volume = useMemo(
     () => sets.reduce((sum, set) => sum + (set.warmup ? 0 : set.reps * set.weightKg), 0),
     [sets],
@@ -96,6 +136,8 @@ export function StrengthLogger({
         painReported: feedback.painReported,
         athleteFeedback: feedback.athleteFeedback,
       });
+      if (workoutId) clearActiveWorkout(workoutId);
+      window.dispatchEvent(new Event("tamreen-active-workout"));
       router.push("/records");
       router.refresh();
     } catch (caught) {
@@ -194,14 +236,31 @@ export function StrengthLogger({
       <p className="caption">Working volume {Math.round(volume)} kg (stored in kg).</p>
 
       {!finishing ? (
-        <button
-          className="btn btn-ghost"
-          type="button"
-          disabled={sets.length === 0}
-          onClick={() => setFinishing(true)}
-        >
-          Finish session
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="btn btn-ghost"
+            type="button"
+            disabled={sets.length === 0}
+            onClick={() => setFinishing(true)}
+          >
+            Finish session
+          </button>
+          {sets.length > 0 ? (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => {
+                if (!window.confirm("Discard this in-progress workout? Unsaved sets will be lost.")) return;
+                setSets([]);
+                setActiveIndex(0);
+                if (workoutId) clearActiveWorkout(workoutId);
+                window.dispatchEvent(new Event("tamreen-active-workout"));
+              }}
+            >
+              Discard session
+            </button>
+          ) : null}
+        </div>
       ) : (
         <form action={save} className="app-card grid gap-3 p-4">
           <h3 className="section-title">Finish {title}</h3>

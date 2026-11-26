@@ -1,18 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, Flag, Target, Trophy, Utensils } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { PageFrame } from "@/components/page";
+import { EventActionsMenu } from "@/features/events/delete-event";
 import { PersonalEventForm } from "@/features/events/forms";
 import { PostEventCheckInForm } from "@/features/events/post-event-checkin";
 import { categoryForEventType, formatDistanceKm } from "@/services/events/catalog";
 import { evaluateEventCompatibility } from "@/services/events/compatibility";
 import { toPlanningEvents } from "@/services/events/multi-event";
 import { priorityDisplayLabel } from "@/services/events/priority";
+import { sanitizeReturnTo } from "@/lib/navigation";
 import { daysUntil, formatClock, formatPace, todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 
-export default async function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EventDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
+}) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const returnTo = sanitizeReturnTo(from);
   const { supabase, user } = await requireUser();
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
@@ -111,12 +122,30 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
     }
     : null;
 
+  const owned = event.owner_user_id === user.id;
+
   return (
     <PageFrame
       title={event.name}
       lede={`${event.event_type} · Priority ${priorityDisplayLabel(priority)} · ${event.status ?? "active"}`}
       compact
-      actions={<Link className="btn btn-ghost btn-sm" href="/events">All events</Link>}
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <BackLink from={returnTo} kind="event" />
+          {owned ? (
+            <>
+              <a className="btn btn-ghost btn-sm" href="#edit-event">Edit event</a>
+              <EventActionsMenu
+                eventId={event.id}
+                eventName={event.name}
+                eventDate={event.starts_on}
+                returnTo={returnTo || "/events"}
+                isPrimary={priority === "primary"}
+              />
+            </>
+          ) : null}
+        </div>
+      }
     >
       <section className="grid grid-cols-3 gap-2">
         <div className="app-card p-3">
@@ -292,26 +321,29 @@ export default async function EventDetailPage({ params }: { params: Promise<{ id
         <p className="text-sm text-muted">No result is stored yet. After the event, complete the post-event check-in.</p>
       )}
 
-      {event.owner_user_id === user.id ? (
-        <PersonalEventForm
-          initial={{
-            id: event.id,
-            name: event.name,
-            category: categoryForEventType(event.event_type),
-            preset: event.template_slug || event.event_type,
-            eventType: event.event_type,
-            date: event.starts_on,
-            location: event.location ?? "",
-            priority: (event.priority as "primary" | "secondary" | "practice" | undefined) ?? "primary",
-            experienceLevel: event.experience_level ?? "",
-            notes: event.athlete_notes || event.description || "",
-            status: (event.status as "active" | "completed" | "cancelled" | undefined) ?? "active",
-            distanceM: event.distance_m == null ? null : Number(event.distance_m),
-            swimM: event.swim_m == null ? null : Number(event.swim_m),
-            bikeM: event.bike_m == null ? null : Number(event.bike_m),
-            runM: event.run_m == null ? null : Number(event.run_m),
-          }}
-        />
+      {owned ? (
+        <div id="edit-event" className="scroll-mt-24">
+          <PersonalEventForm
+            returnTo={returnTo}
+            initial={{
+              id: event.id,
+              name: event.name,
+              category: categoryForEventType(event.event_type),
+              preset: event.template_slug || event.event_type,
+              eventType: event.event_type,
+              date: event.starts_on,
+              location: event.location ?? "",
+              priority: (event.priority as "primary" | "secondary" | "practice" | undefined) ?? "primary",
+              experienceLevel: event.experience_level ?? "",
+              notes: event.athlete_notes || event.description || "",
+              status: (event.status as "active" | "completed" | "cancelled" | undefined) ?? "active",
+              distanceM: event.distance_m == null ? null : Number(event.distance_m),
+              swimM: event.swim_m == null ? null : Number(event.swim_m),
+              bikeM: event.bike_m == null ? null : Number(event.bike_m),
+              runM: event.run_m == null ? null : Number(event.run_m),
+            }}
+          />
+        </div>
       ) : null}
 
       <Link className="btn btn-ghost" href="/plan">Open the integrated plan</Link>

@@ -1,14 +1,22 @@
 import Link from "next/link";
 import { Droplets, Utensils } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { PageFrame } from "@/components/page";
 import { ProgressIndicator } from "@/components/ui/progress-indicator";
 import { NutritionLogger } from "@/features/nutrition/logger";
+import { sanitizeReturnTo } from "@/lib/navigation";
 import { todayInTimeZone } from "@/lib/utils";
 import { requireUser } from "@/server/guard";
 
 const mealOrder = ["breakfast", "lunch", "dinner", "snack", "snacks"] as const;
 
-export default async function NutritionPage() {
+export default async function NutritionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string }>;
+}) {
+  const { from } = await searchParams;
+  const returnTo = sanitizeReturnTo(from);
   const { supabase, user } = await requireUser();
   const { data: athlete } = await supabase.from("athlete_profiles").select("timezone").eq("user_id", user.id).maybeSingle();
   const today = todayInTimeZone(athlete?.timezone || "Asia/Qatar");
@@ -62,7 +70,7 @@ export default async function NutritionPage() {
       title="Nutrition"
       lede={mode === "flexible" ? "Log intake against today's target." : "Follow the structured plan and log swaps."}
       compact
-      actions={<Link className="btn btn-ghost btn-sm" href="/recovery">Body</Link>}
+      actions={<BackLink from={returnTo} kind="nutrition" label="Back to More" />}
     >
       <p className="caption">
         {prefs?.dietary_pattern ?? "Diet not set"}

@@ -1,11 +1,18 @@
-import Link from "next/link";
 import { Sparkles } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { PageFrame } from "@/components/page";
 import { CoachBox } from "@/features/ai/coach-box";
 import { ExplainList } from "@/components/states";
+import { sanitizeReturnTo } from "@/lib/navigation";
 import { requireUser } from "@/server/guard";
 
-export default async function CoachPage() {
+export default async function CoachPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; context?: string; body?: string }>;
+}) {
+  const query = await searchParams;
+  const returnTo = sanitizeReturnTo(query.from);
   const { supabase, user } = await requireUser();
   const { data: history } = await supabase
     .from("ai_recommendations")
@@ -13,13 +20,21 @@ export default async function CoachPage() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(8);
+  const contextNote = query.context
+    ? `About: ${query.context}${query.body ? ` — ${query.body}` : ""}`
+    : null;
   return (
     <PageFrame
       title="AI Coach"
       lede="Ask about today's plan, recovery, or event prep. Plan changes stay pending until you accept."
       compact
-      actions={<Link className="btn btn-ghost btn-sm" href="/home">Home</Link>}
+      actions={<BackLink from={returnTo} kind="generic" label="Back to Today" />}
     >
+      {contextNote ? (
+        <p className="rounded-[var(--radius-md)] border border-line bg-elevated px-3 py-2 text-sm" role="status">
+          {contextNote}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {[
           ["Why was my plan changed?", "/ai"],
